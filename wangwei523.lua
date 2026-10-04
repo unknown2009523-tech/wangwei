@@ -15,18 +15,18 @@ pcall(function() UIS.MouseIconEnabled = true end)
 
 local state = {
     ws = nil, jp = nil, flySpeed = 60, bright = nil, range = nil, fov = nil,
-    noclip = false, fly = false, fovLock = false,
+    noclip = false, fly = false,
     macroOn = false, mx = 0, my = 0, macroDelay = 0.05,
     god = false, invis = false, spinning = false, spinSpeed = 10,
     prefix = ".", chatOn = true, touchTP = false,
     lastCF = nil, hipHeight = nil,
 
-    aimOn = false, aimFOV = 150, aimSmooth = 1, aimTeam = false,
+    aimOn = false, aimFOV = 150, aimSmooth = 0.3, aimTeam = false,
     aimVisible = true, aimPart = "Head", aimCircle = true,
     aimMouseMode = true, aimMoveMouse = true, aimMoveCam = false,
-    aimNPC = true, aimActive = false,
+    aimNPC = true, aimActive = false, aimHold = true,
 
-    hbOn = false, hbSize = 10, hbColor = Color3.fromRGB(255,0,0),
+    hbOn = false, hbSize = 10, hbColor = Color3.fromRGB(255, 0, 0),
     hbTrans = 0.5, hbNPC = true,
 }
 
@@ -42,7 +42,7 @@ local function numArg(args, i)
     for k = i, #args do local n = tonumber(args[k]); if n then return n, k end end
 end
 
--- 속도
+-- 속도 / 점프
 local function applyWS()
     if state.ws == nil then return end
     local h = hum(); if h then pcall(function() h.WalkSpeed = state.ws end) end
@@ -78,7 +78,6 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- 마지막 생존 위치
 local accum = 0
 RunService.Heartbeat:Connect(function(dt)
     accum = accum + dt
@@ -218,7 +217,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- 투명
+-- 투명화
 local function setInvis(on)
     state.invis = on
     local c = lp.Character; if not c then return end
@@ -278,7 +277,6 @@ local function applyFOV()
     if state.fov == nil then return end
     local c = workspace.CurrentCamera; if not c then return end
     pcall(function()
-        if state.fovLock then c.CameraType = Enum.CameraType.Scriptable end
         if math.abs(c.FieldOfView - state.fov) > 0.1 then c.FieldOfView = state.fov end
     end)
 end
@@ -435,7 +433,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- 에임봇
+-- FOV 원
 local fovGui = Instance.new("ScreenGui")
 fovGui.Name = "wFov"
 fovGui.ResetOnSpawn = false
@@ -481,6 +479,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- 타겟 탐색
 local function isEnemy(plr)
     if plr == lp then return false end
     if not state.aimTeam and plr.Team and lp.Team and plr.Team == lp.Team then return false end
@@ -492,26 +491,33 @@ local function getPart(char)
     if state.aimPart == "Head" then return char:FindFirstChild("Head") end
     if state.aimPart == "HumanoidRootPart" then return char:FindFirstChild("HumanoidRootPart") end
     if state.aimPart == "UpperTorso" then return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") end
-    return char:FindFirstChild("Head")
+    return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
 end
 
-local function getNPCs()
+local npcCache = {}
+local npcCacheTime = 0
+
+RunService.Heartbeat:Connect(function()
+    if tick() - npcCacheTime < 0.5 then return end
+    npcCacheTime = tick()
+    if not state.aimNPC then npcCache = {}; return end
     local t = {}
-    if not state.aimNPC then return t end
-    for _, o in ipairs(workspace:GetChildren()) do
+    for _, o in ipairs(workspace:GetDescendants()) do
         if o:IsA("Model") then
             local h = o:FindFirstChildOfClass("Humanoid")
-            if h and h.Health > 0 then
+            local p = o:FindFirstChild("HumanoidRootPart") or o:FindFirstChild("Torso") or o.PrimaryPart
+            if h and p then
                 local isPlr = false
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p.Character == o then isPlr = true; break end
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl.Character == o then isPlr = true; break end
                 end
+                if o == lp.Character then isPlr = true end
                 if not isPlr then table.insert(t, o) end
             end
         end
     end
-    return t
-end
+    npcCache = t
+end)
 
 local function visible(pos, char)
     if not state.aimVisible then return true end
@@ -549,14 +555,16 @@ local function closest()
         end
     end
 
-    for _, m in ipairs(getNPCs()) do
-        local pt = getPart(m)
-        if pt then
-            local sp, on = cam:WorldToViewportPoint(pt.Position)
-            if on then
-                local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                if d <= bestD and visible(pt.Position, m) then
-                    best = {part = pt, char = m, dist = d}; bestD = d
+    for _, m in ipairs(npcCache) do
+        if m and m.Parent then
+            local pt = getPart(m)
+            if pt then
+                local sp, on = cam:WorldToViewportPoint(pt.Position)
+                if on then
+                    local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                    if d <= bestD and visible(pt.Position, m) then
+                        best = {part = pt, char = m, dist = d}; bestD = d
+                    end
                 end
             end
         end
@@ -564,47 +572,68 @@ local function closest()
     return best
 end
 
+-- 마우스 이동
 local function moveMouse(sx, sy)
     local m = lp:GetMouse(); if not m then return end
-    for _ = 1, 6 do
-        local dx, dy = sx - m.X, sy - m.Y
-        if math.abs(dx) < 1 and math.abs(dy) < 1 then break end
-        local ok = pcall(function() mousemoverel(dx, dy) end)
-        if not ok then pcall(function() mousemoverel(math.floor(dx/2), math.floor(dy/2)) end) end
-        task.wait()
-    end
+    local dx = sx - m.X
+    local dy = sy - m.Y
+    if math.abs(dx) < 1 and math.abs(dy) < 1 then return end
+    pcall(function() mousemoverel(dx, dy) end)
 end
 
-RunService.RenderStepped:Connect(function()
-    if not state.aimOn or not state.aimActive then return end
+-- 타겟 좌표 스무딩
+local smoothPos = nil
+
+RunService.RenderStepped:Connect(function(dt)
+    if not state.aimOn or not state.aimActive then
+        smoothPos = nil
+        return
+    end
+
     local t = closest()
-    if not t or not t.part or not t.part.Parent then return end
+    if not t or not t.part or not t.part.Parent then
+        smoothPos = nil
+        return
+    end
+
     local cam = workspace.CurrentCamera
     if not cam then return end
 
+    local targetPos = t.part.Position
+    if smoothPos then
+        smoothPos = smoothPos:Lerp(targetPos, math.clamp(dt * 20, 0, 1))
+    else
+        smoothPos = targetPos
+    end
+
     if state.aimMoveMouse then
-        local sp, on = cam:WorldToViewportPoint(t.part.Position)
+        local sp, on = cam:WorldToViewportPoint(smoothPos)
         if on then moveMouse(sp.X, sp.Y) end
     end
 
     if state.aimMoveCam then
         local myPos = cam.CFrame.Position
-        local dir = (t.part.Position - myPos).Unit
+        local dir = (smoothPos - myPos).Unit
         local tcf = CFrame.lookAt(myPos, myPos + dir)
-        cam.CFrame = cam.CFrame:Lerp(tcf, state.aimSmooth)
+        local k = math.clamp(dt * 10 * state.aimSmooth, 0, 1)
+        cam.CFrame = cam.CFrame:Lerp(tcf, k)
     end
 end)
 
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 and state.aimOn then
-        state.aimActive = true
+        if state.aimHold then
+            state.aimActive = true
+        else
+            state.aimActive = not state.aimActive
+        end
     end
 end)
 
 UIS.InputEnded:Connect(function(input, gpe)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
-        state.aimActive = false
+        if state.aimHold then state.aimActive = false end
     end
 end)
 
@@ -670,14 +699,8 @@ local function applyHbAll()
         if p ~= lp and p.Character then applyHb(p.Character) end
     end
     if state.hbNPC then
-        for _, o in ipairs(workspace:GetChildren()) do
-            if o:IsA("Model") and o:FindFirstChildOfClass("Humanoid") then
-                local isPlr = false
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p.Character == o then isPlr = true; break end
-                end
-                if not isPlr then applyHb(o) end
-            end
+        for _, o in ipairs(npcCache) do
+            if o and o.Parent then applyHb(o) end
         end
     end
 end
@@ -694,7 +717,7 @@ task.spawn(function()
     end
 end)
 
--- 댄스/음악
+-- 댄스
 local curMusic, curTrack
 
 local DANCES = {
@@ -704,12 +727,14 @@ local DANCES = {
     floss = "rbxassetid://5915671715",
     dorky = "rbxassetid://5915714726",
     monkey = "rbxassetid://5915755123",
+    robot = "rbxassetid://507776879",
 }
 
 local SONGS = {
     default = "rbxassetid://1837879082",
     party = "rbxassetid://1837879082",
     funny = "rbxassetid://1836315841",
+    epic = "rbxassetid://1836190483",
 }
 
 local function stopDance()
@@ -772,6 +797,29 @@ cmd("jump", "점프력", function(a)
     state.jp = math.clamp(n, 0, 1000); applyJP(); notify("점프 " .. state.jp)
 end)
 
+cmd("hipheight", "HipHeight", function(a)
+    local n = numArg(a, 1); if not n then notify(".hipheight 5"); return end
+    state.hipHeight = n
+    local h = hum(); if h then h.HipHeight = n end
+    notify("HipHeight " .. n)
+end)
+
+cmd("fast", "빠르게", function()
+    state.ws = 100; applyWS(); notify("빠르게")
+end)
+
+cmd("slow", "느리게", function()
+    state.ws = 8; applyWS(); notify("느리게")
+end)
+
+cmd("superjump", "슈퍼점프", function()
+    state.jp = 300; applyJP(); notify("슈퍼점프")
+end)
+
+cmd("heavyjump", "무거운 점프", function()
+    state.jp = 10; applyJP(); notify("무거운 점프")
+end)
+
 cmd("god", "무적", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then state.god = true; notify("무적 ON")
@@ -781,6 +829,16 @@ end)
 
 cmd("heal", "회복", function()
     local h = hum(); if h then h.Health = h.MaxHealth; notify("회복") end
+end)
+
+cmd("health", "체력 설정", function(a)
+    local n = numArg(a, 1); if not n then notify(".health 100"); return end
+    local h = hum(); if h then h.Health = n; notify("체력 " .. n) end
+end)
+
+cmd("damage", "데미지", function(a)
+    local n = numArg(a, 1); if not n then notify(".damage 50"); return end
+    local h = hum(); if h then h:TakeDamage(n); notify("데미지 " .. n) end
 end)
 
 cmd("kill", "즉사", function()
@@ -794,14 +852,53 @@ cmd("invis", "투명화", function(a)
     else setInvis(not state.invis); notify("투명화 " .. (state.invis and "ON" or "OFF")) end
 end)
 
+cmd("visible", "투명 해제", function()
+    setInvis(false); notify("투명 OFF")
+end)
+
 cmd("spin", "회전", function(a)
     local n = numArg(a, 1); if n then state.spinSpeed = n end
     setSpin(not state.spinning); notify("회전 " .. (state.spinning and "ON" or "OFF"))
 end)
 
+cmd("fling", "날려버리기", function()
+    local p = hrp()
+    if p then
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        bv.Velocity = Vector3.new(0, 200, 0)
+        bv.Parent = p
+        task.wait(0.5)
+        bv:Destroy()
+    end
+end)
+
+cmd("explode", "폭발", function()
+    local p = hrp()
+    if p then
+        local e = Instance.new("Explosion")
+        e.Position = p.Position
+        e.BlastRadius = 10
+        e.Parent = workspace
+    end
+end)
+
 cmd("re", "리스폰", function() respawnNormal(); notify("리스폰") end)
 cmd("res", "제자리 리스폰", function() respawnHere(); notify("제자리") end)
 cmd("revive", "부활", function() revive(); notify("부활") end)
+cmd("rv", "부활", function() revive(); notify("부활") end)
+
+cmd("freeze", "정지", function()
+    state.ws = 0; applyWS(); notify("정지")
+end)
+
+cmd("unfreeze", "정지 해제", function()
+    state.ws = 16; applyWS(); notify("해제")
+end)
+
+cmd("normal", "일반 상태", function()
+    state.ws = 16; state.jp = 50; applyWS(); applyJP(); notify("일반")
+end)
 
 cmd("tp", "플레이어 TP", function(a)
     local n = a[1]; if not n then notify(".tp 이름"); return end
@@ -819,6 +916,13 @@ cmd("tppos", "좌표 TP", function(a)
     tpPos(x, y, z); notify("TP")
 end)
 
+cmd("touchtp", "터치 TP", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then setTouchTP(true); notify("터치 TP ON")
+    elseif mode == "off" then setTouchTP(false); notify("터치 TP OFF")
+    else setTouchTP(not state.touchTP); notify("터치 TP " .. (state.touchTP and "ON" or "OFF")) end
+end)
+
 cmd("aim", "에임봇", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then state.aimOn = true; notify("에임 ON")
@@ -830,6 +934,32 @@ end)
 cmd("aimfov", "에임 FOV", function(a)
     local n = numArg(a, 1); if not n then notify(".aimfov 200"); return end
     state.aimFOV = math.clamp(n, 20, 800); updateCircle(); notify("FOV " .. state.aimFOV)
+end)
+
+cmd("aimsmooth", "에임 부드러움", function(a)
+    local n = numArg(a, 1); if not n then notify(".aimsmooth 0.3"); return end
+    state.aimSmooth = math.clamp(n, 0.05, 1); notify("부드러움 " .. state.aimSmooth)
+end)
+
+cmd("aimwall", "벽 뒤 무시", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.aimVisible = true; notify("벽 뒤 무시 ON")
+    elseif mode == "off" then state.aimVisible = false; notify("벽 뚫기 ON")
+    else state.aimVisible = not state.aimVisible; notify("벽 뒤 무시 " .. (state.aimVisible and "ON" or "OFF")) end
+end)
+
+cmd("aimpart", "조준 부위", function(a)
+    local p = a[1]
+    if p == "head" then state.aimPart = "Head"
+    elseif p == "hrp" then state.aimPart = "HumanoidRootPart"
+    elseif p == "torso" then state.aimPart = "UpperTorso"
+    else notify(".aimpart head/hrp/torso"); return end
+    notify("조준 " .. state.aimPart)
+end)
+
+cmd("aimhold", "우클릭 유지/토글", function(a)
+    state.aimHold = not state.aimHold
+    notify("에임 모드 " .. (state.aimHold and "홀드" or "토글"))
 end)
 
 cmd("hb", "히트박스", function(a)
@@ -849,6 +979,38 @@ cmd("dance", "춤", function(a)
 end)
 
 cmd("stopdance", "춤 정지", function() stopDance(); notify("정지") end)
+cmd("floss", "플로스", function() dance("floss", "party") end)
+cmd("dorky", "도키", function() dance("dorky", "funny") end)
+cmd("monkey", "몽키", function() dance("monkey", "party") end)
+cmd("robot", "로봇", function() dance("robot", "epic") end)
+
+cmd("macro", "매크로", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then startMacro(); notify("매크로 ON")
+    elseif mode == "off" then stopMacro(); notify("매크로 OFF")
+    else
+        if state.macroOn then stopMacro(); notify("매크로 OFF")
+        else startMacro(); notify("매크로 ON") end
+    end
+end)
+
+cmd("bright", "밝기", function(a)
+    local n = numArg(a, 1); if not n then notify(".bright 30"); return end
+    state.bright = math.clamp(n, 0, 60); applyLights(); applyLighting(); notify("밝기 " .. state.bright)
+end)
+
+cmd("fov", "FOV", function(a)
+    local n = numArg(a, 1); if not n then notify(".fov 70"); return end
+    state.fov = math.clamp(n, 20, 120); applyFOV(); notify("FOV " .. state.fov)
+end)
+
+cmd("zoom", "줌인", function() state.fov = 30; applyFOV(); notify("줌인") end)
+cmd("unzoom", "줌아웃", function() state.fov = 70; applyFOV(); notify("줌아웃") end)
+
+cmd("fullbright", "풀브라이트", function()
+    state.bright = 60; state.range = 200
+    applyLights(); applyLighting(); notify("풀브라이트")
+end)
 
 cmd("reset", "리셋", function()
     state.ws = nil; state.jp = nil; state.fov = nil; state.bright = nil; state.hipHeight = nil
@@ -865,6 +1027,10 @@ cmd("help", "명령어 목록", function()
     for k, _ in pairs(Cmds) do table.insert(t, state.prefix .. k) end
     table.sort(t)
     notify(table.concat(t, " "), "명령어 " .. #t .. "개")
+end)
+
+cmd("cmds", "명령어 목록", function()
+    Cmds.help.fn({})
 end)
 
 -- 채팅 훅
@@ -928,7 +1094,7 @@ local Window = Rayfield:CreateWindow({
     LoadingSubtitle = "by 왕웨이",
     ConfigurationSaving = {Enabled = false},
     KeySystem = false,
-    Size = UDim2.fromOffset(1000, 360),
+    Size = UDim2.fromOffset(1150, 320),
 })
 
 -- 에임
@@ -937,9 +1103,15 @@ local AimTab = Window:CreateTab("에임", 4483362458)
 AimTab:CreateSection("에임봇")
 
 AimTab:CreateToggle({
-    Name = "에임봇 (우클릭 고정)",
+    Name = "에임봇",
     CurrentValue = false, Flag = "aOn",
     Callback = function(v) state.aimOn = v; updateCircle() end
+})
+
+AimTab:CreateToggle({
+    Name = "토글 모드 (OFF = 우클릭 홀드)",
+    CurrentValue = false, Flag = "aHold",
+    Callback = function(v) state.aimHold = not v end
 })
 
 AimTab:CreateToggle({
@@ -964,20 +1136,26 @@ AimTab:CreateToggle({
 AimTab:CreateSlider({
     Name = "부드러움",
     Range = {0.05, 1}, Increment = 0.05,
-    CurrentValue = 1, Flag = "aSm",
+    CurrentValue = 0.3, Flag = "aSm",
     Callback = function(v) state.aimSmooth = v end
 })
 
 AimTab:CreateToggle({
-    Name = "마우스 커서 이동 (총 발사 게임)",
+    Name = "마우스 커서 이동",
     CurrentValue = true, Flag = "aMoveM",
     Callback = function(v) state.aimMoveMouse = v end
 })
 
 AimTab:CreateToggle({
-    Name = "카메라 회전 (일반 FPS)",
+    Name = "카메라 회전",
     CurrentValue = false, Flag = "aMoveC",
     Callback = function(v) state.aimMoveCam = v end
+})
+
+AimTab:CreateToggle({
+    Name = "벽 뒤 무시 (OFF = 벽 뚫고 조준)",
+    CurrentValue = true, Flag = "aVis",
+    Callback = function(v) state.aimVisible = v end
 })
 
 AimTab:CreateDropdown({
@@ -995,13 +1173,7 @@ AimTab:CreateToggle({
 })
 
 AimTab:CreateToggle({
-    Name = "벽 뒤 무시",
-    CurrentValue = true, Flag = "aVis",
-    Callback = function(v) state.aimVisible = v end
-})
-
-AimTab:CreateToggle({
-    Name = "더미/NPC도 타겟",
+    Name = "더미/NPC 타겟",
     CurrentValue = true, Flag = "aNPC",
     Callback = function(v) state.aimNPC = v end
 })
@@ -1206,11 +1378,6 @@ Players.PlayerRemoving:Connect(function() task.wait(0.3); refreshP() end)
 -- 매크로
 local McTab = Window:CreateTab("매크로", 4483362458)
 
-McTab:CreateParagraph({
-    Title = "사용법",
-    Content = "1. 매크로 ON\n2. 화면에서 터치할 위치 클릭\n3. 자동 반복"
-})
-
 McTab:CreateToggle({
     Name = "매크로 ON/OFF",
     CurrentValue = false, Flag = "mOn",
@@ -1230,10 +1397,10 @@ McTab:CreateSlider({
 McTab:CreateButton({Name = "매크로 시작", Callback = function() startMacro() end})
 McTab:CreateButton({Name = "매크로 중지", Callback = function() stopMacro() end})
 
--- 명령어
+-- 명령어 탭
 local CTab = Window:CreateTab("명령어", 4483362458)
 
-CTab:CreateSection("명령어 목록")
+CTab:CreateSection("명령어 실행")
 
 local function buildList()
     local t = {}
@@ -1241,6 +1408,45 @@ local function buildList()
     table.sort(t)
     return t
 end
+
+local function buildOptions()
+    local t = buildList()
+    local opts = {}
+    for _, k in ipairs(t) do
+        table.insert(opts, k .. " — " .. (Cmds[k].desc or ""))
+    end
+    return opts
+end
+
+local cmdDropdown
+cmdDropdown = CTab:CreateDropdown({
+    Name = "명령어 선택 (즉시 실행)",
+    Options = buildOptions(),
+    CurrentOption = {"선택..."},
+    Flag = "cmdSel",
+    Callback = function(o)
+        if not o or #o == 0 then return end
+        local name = o[1]:match("^(%S+)")
+        if not name then return end
+        local c = Cmds[name:lower()]
+        if c then
+            local ok, err = pcall(c.fn, {})
+            if not ok then notify("오류: " .. tostring(err)) end
+        end
+        task.wait(0.3)
+        pcall(function() cmdDropdown:Refresh(buildOptions(), true) end)
+    end
+})
+
+CTab:CreateButton({
+    Name = "명령어 목록 새로고침",
+    Callback = function()
+        pcall(function() cmdDropdown:Refresh(buildOptions(), true) end)
+        notify("명령어 " .. #buildList() .. "개")
+    end
+})
+
+CTab:CreateSection("전체 명령어")
 
 CTab:CreateParagraph({
     Title = "명령어 (" .. #buildList() .. "개)",
@@ -1265,6 +1471,7 @@ CTab:CreateInput({
 
 CTab:CreateButton({Name = "접두사 '.'", Callback = function() state.prefix = "."; notify("'.'") end})
 CTab:CreateButton({Name = "접두사 ';'", Callback = function() state.prefix = ";"; notify("';'") end})
+CTab:CreateButton({Name = "접두사 '!'", Callback = function() state.prefix = "!"; notify("'!'") end})
 
 CTab:CreateSection("시스템")
 
