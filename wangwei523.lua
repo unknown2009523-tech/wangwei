@@ -57,6 +57,9 @@ task.spawn(function()
     end)
 end)
 
+-- Drawing API 지원 확인
+local hasDrawing = pcall(function() return Drawing.new("Line") end)
+
 -- state
 local state = {
     ws = nil, jp = nil, flySpeed = 60, bright = nil, range = nil, fov = nil,
@@ -68,14 +71,26 @@ local state = {
 
     aimOn = false, aimFOV = 200, aimSmooth = 0.3, aimTeam = false,
     aimVisible = true, aimPart = "Head", aimCircle = true,
-    aimMouseFollow = false,   -- 마우스 따라다니기 (OFF면 화면 중앙)
-    aimStrongLock = false,    -- 강한 고정
-    aimExclude = 0,           -- 제외 인원
+    aimMouseFollow = false, aimStrongLock = false, aimExclude = 0,
     aimNPC = true, aimActive = false, aimHold = true,
-    aimTarget = nil,          -- 현재 조준 중인 타겟 이름
+    aimTarget = nil,
 
     hbOn = false, hbSize = 10, hbColor = Color3.fromRGB(255, 0, 0),
     hbTrans = 0.5, hbNPC = true,
+
+    -- ESP
+    espOn = false,
+    espOutline = false,     -- 테두리
+    espHead = false,        -- 머리만
+    espBox = false,         -- 네모
+    espColor = Color3.fromRGB(255, 0, 0),
+    espTextColor = Color3.fromRGB(255, 255, 255),
+    espShowName = true,
+    espShowDistance = true,
+    espShowHealth = false,
+    espNPC = true,
+    espMaxDist = 1000,
+    espTeam = false,
 }
 
 local function hum() local c = lp.Character; return c and c:FindFirstChildOfClass("Humanoid") end
@@ -443,9 +458,7 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- =========================================================
 -- FOV 원
--- =========================================================
 local fovGui = Instance.new("ScreenGui")
 fovGui.Name = "wFov"
 fovGui.ResetOnSpawn = false
@@ -478,26 +491,20 @@ local function mousePos()
     return Vector2.new(workspace.CurrentCamera.ViewportSize.X/2, workspace.CurrentCamera.ViewportSize.Y/2)
 end
 
--- ★ 핵심: 마우스 따라다니기 OFF → 화면 정중앙 고정
 RunService.RenderStepped:Connect(function()
     if not state.aimCircle then fovCircle.Visible = false; return end
     fovCircle.Visible = state.aimOn
     if not state.aimOn then return end
-
     if state.aimMouseFollow then
-        -- 마우스 따라다니기 ON
         local mp = mousePos()
         fovCircle.Position = UDim2.fromOffset(mp.X, mp.Y)
     else
-        -- 마우스 따라다니기 OFF → 화면 정중앙
         local vp = workspace.CurrentCamera.ViewportSize
         fovCircle.Position = UDim2.fromOffset(vp.X / 2, vp.Y / 2)
     end
 end)
 
--- =========================================================
 -- 타겟 탐색
--- =========================================================
 local function isEnemy(plr)
     if plr == lp then return false end
     if not state.aimTeam and plr.Team and lp.Team and plr.Team == lp.Team then return false end
@@ -519,7 +526,7 @@ local npcCacheTime = 0
 RunService.Heartbeat:Connect(function()
     if tick() - npcCacheTime < 0.5 then return end
     npcCacheTime = tick()
-    if not state.aimNPC then npcCache = {}; return end
+    if not (state.aimNPC or state.espNPC or state.hbNPC or state.espOn) then npcCache = {}; return end
     local t = {}
     for _, o in ipairs(workspace:GetDescendants()) do
         if o:IsA("Model") then
@@ -551,23 +558,15 @@ local function visible(pos, char)
     return hit == nil
 end
 
--- FOV 안의 모든 타겟 수집 (Exclude용)
 local function getTargetsInFOV()
     local cam = workspace.CurrentCamera
     if not cam then return {} end
-
-    -- 중심 좌표: 마우스 따라다니기 ON → 마우스 / OFF → 화면 정중앙
     local center
-    if state.aimMouseFollow then
-        center = mousePos()
-    else
-        center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    end
-
+    if state.aimMouseFollow then center = mousePos()
+    else center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2) end
     local list = {}
     local maxD = state.aimFOV / 2
 
-    -- 플레이어
     for _, p in ipairs(Players:GetPlayers()) do
         if isEnemy(p) then
             local c = p.Character
@@ -585,7 +584,6 @@ local function getTargetsInFOV()
         end
     end
 
-    -- NPC
     for _, m in ipairs(npcCache) do
         if m and m.Parent then
             local pt = getPart(m)
@@ -607,7 +605,6 @@ end
 
 local function closest()
     local list = getTargetsInFOV()
-    -- Exclude 만큼 뒤에서 시작
     local idx = state.aimExclude + 1
     if idx > #list then idx = 1 end
     return list[idx]
@@ -621,24 +618,11 @@ local function moveMouse(sx, sy)
     pcall(function() mousemoverel(dx, dy) end)
 end
 
--- =========================================================
--- 에임봇 (Strong Lock + Aimed 표시)
--- =========================================================
+-- 에임봇
 local smoothPos = nil
 local lockedTarget = nil
 
 RunService.RenderStepped:Connect(function(dt)
-    -- Aimed 표시 갱신
-    if state.aimTarget then
-        pcall(function()
-            if AimedLabel then AimedLabel.Text = "Aimed: " .. state.aimTarget end
-        end)
-    else
-        pcall(function()
-            if AimedLabel then AimedLabel.Text = "Aimed: None" end
-        end)
-    end
-
     if not state.aimOn or not state.aimActive then
         smoothPos = nil
         if not state.aimStrongLock then lockedTarget = nil end
@@ -647,16 +631,12 @@ RunService.RenderStepped:Connect(function(dt)
     end
 
     local t
-    -- Strong Lock: 이전 타겟이 살아있으면 유지
     if state.aimStrongLock and lockedTarget and lockedTarget.part and lockedTarget.part.Parent then
         local cam = workspace.CurrentCamera
         if cam then
             local center
-            if state.aimMouseFollow then
-                center = mousePos()
-            else
-                center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-            end
+            if state.aimMouseFollow then center = mousePos()
+            else center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2) end
             local sp, on = cam:WorldToViewportPoint(lockedTarget.part.Position)
             if on then
                 local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
@@ -694,22 +674,16 @@ RunService.RenderStepped:Connect(function(dt)
         smoothPos = targetPos
     end
 
-    -- 마우스 커서 이동
     local sp, on = cam:WorldToViewportPoint(smoothPos)
     if on then moveMouse(sp.X, sp.Y) end
 end)
 
 UIS.InputBegan:Connect(function(input, gpe)
     if gpe then return end
-    -- 우클릭
     if input.UserInputType == Enum.UserInputType.MouseButton2 and state.aimOn then
-        if state.aimHold then
-            state.aimActive = true
-        else
-            state.aimActive = not state.aimActive
-        end
+        if state.aimHold then state.aimActive = true
+        else state.aimActive = not state.aimActive end
     end
-    -- Q 키: 에임봇 토글 (사진과 동일)
     if input.KeyCode == Enum.KeyCode.Q then
         state.aimOn = not state.aimOn
         updateCircle()
@@ -724,8 +698,285 @@ UIS.InputEnded:Connect(function(input, gpe)
 end)
 
 -- =========================================================
--- 히트박스
+-- ESP (테두리 / 머리만 / 네모)
 -- =========================================================
+local espObjects = {}   -- [player/model] = {outline, box, headText, nameText, distText, hpBar}
+
+local function removeESP(char)
+    local data = espObjects[char]
+    if not data then return end
+    for _, obj in pairs(data) do
+        if obj and obj.Remove then pcall(function() obj:Remove() end) end
+        if obj and obj.Destroy then pcall(function() obj:Destroy() end) end
+    end
+    espObjects[char] = nil
+end
+
+local function createESP(char)
+    if espObjects[char] then return espObjects[char] end
+    local data = {}
+
+    -- 테두리 (Highlight)
+    local outline = Instance.new("Highlight")
+    outline.Name = "wESP_Outline"
+    outline.FillTransparency = 1
+    outline.OutlineTransparency = 0
+    outline.OutlineColor = state.espColor
+    outline.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    outline.Adornee = char
+    outline.Parent = char
+    data.outline = outline
+
+    -- 네모 (Box)
+    if hasDrawing then
+        local box = {
+            tl = Drawing.new("Line"),
+            tr = Drawing.new("Line"),
+            bl = Drawing.new("Line"),
+            br = Drawing.new("Line"),
+        }
+        for _, line in pairs(box) do
+            line.Thickness = 1
+            line.Color = state.espColor
+            line.Transparency = 1
+            line.Visible = false
+        end
+        data.box = box
+
+        -- 머리만 (Head text/dot)
+        local headDot = Drawing.new("Circle")
+        headDot.Radius = 4
+        headDot.Thickness = 2
+        headDot.Color = state.espColor
+        headDot.Filled = false
+        headDot.Transparency = 1
+        headDot.Visible = false
+        data.headDot = headDot
+
+        -- 이름
+        local nameText = Drawing.new("Text")
+        nameText.Size = 14
+        nameText.Center = true
+        nameText.Outline = true
+        nameText.Color = state.espTextColor
+        nameText.Visible = false
+        data.nameText = nameText
+
+        -- 거리
+        local distText = Drawing.new("Text")
+        distText.Size = 12
+        distText.Center = true
+        distText.Outline = true
+        distText.Color = state.espTextColor
+        distText.Visible = false
+        data.distText = distText
+
+        -- 체력
+        local hpBar = Drawing.new("Line")
+        hpBar.Thickness = 3
+        hpBar.Color = Color3.fromRGB(0, 255, 0)
+        hpBar.Transparency = 1
+        hpBar.Visible = false
+        data.hpBar = hpBar
+    end
+
+    espObjects[char] = data
+    return data
+end
+
+local function isTeammate(plr)
+    if not state.espTeam then return false end
+    if plr.Team and lp.Team and plr.Team == lp.Team then return true end
+    return false
+end
+
+-- ESP 렌더링
+RunService.RenderStepped:Connect(function()
+    if not state.espOn then
+        for char, data in pairs(espObjects) do
+            if data.outline then data.outline.Enabled = false end
+            if data.box then for _, l in pairs(data.box) do l.Visible = false end end
+            if data.headDot then data.headDot.Visible = false end
+            if data.nameText then data.nameText.Visible = false end
+            if data.distText then data.distText.Visible = false end
+            if data.hpBar then data.hpBar.Visible = false end
+        end
+        return
+    end
+
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local myPos = cam.CFrame.Position
+
+    -- 대상 리스트 수집
+    local targets = {}
+
+    -- 플레이어
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp and plr.Character and not isTeammate(plr) then
+            local h = plr.Character:FindFirstChildOfClass("Humanoid")
+            if h and h.Health > 0 then
+                table.insert(targets, {char = plr.Character, name = plr.Name, hum = h, isPlayer = true})
+            end
+        end
+    end
+
+    -- NPC
+    if state.espNPC then
+        for _, m in ipairs(npcCache) do
+            if m and m.Parent then
+                local h = m:FindFirstChildOfClass("Humanoid")
+                if h and h.Health > 0 then
+                    table.insert(targets, {char = m, name = m.Name, hum = h, isPlayer = false})
+                end
+            end
+        end
+    end
+
+    -- 이전 대상 정리
+    for char, _ in pairs(espObjects) do
+        local stillValid = false
+        for _, t in ipairs(targets) do
+            if t.char == char then stillValid = true; break end
+        end
+        if not stillValid then removeESP(char) end
+    end
+
+    -- 렌더링
+    for _, t in ipairs(targets) do
+        local char = t.char
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+        local head = char:FindFirstChild("Head")
+        if hrp and head then
+            local data = createESP(char)
+            local dist = (hrp.Position - myPos).Magnitude
+
+            -- 색상 갱신
+            if data.outline then
+                data.outline.OutlineColor = state.espColor
+                data.outline.Enabled = state.espOutline
+            end
+
+            -- 거리 초과
+            if dist > state.espMaxDist then
+                if data.box then for _, l in pairs(data.box) do l.Visible = false end end
+                if data.headDot then data.headDot.Visible = false end
+                if data.nameText then data.nameText.Visible = false end
+                if data.distText then data.distText.Visible = false end
+                if data.hpBar then data.hpBar.Visible = false end
+                if data.outline then data.outline.Enabled = false end
+                continue
+            end
+
+            -- 화면 좌표
+            local hrpScreen, hrpOn = cam:WorldToViewportPoint(hrp.Position)
+            local headScreen, headOn = cam:WorldToViewportPoint(head.Position)
+
+            if not hrpOn or not headOn then
+                if data.box then for _, l in pairs(data.box) do l.Visible = false end end
+                if data.headDot then data.headDot.Visible = false end
+                if data.nameText then data.nameText.Visible = false end
+                if data.distText then data.distText.Visible = false end
+                if data.hpBar then data.hpBar.Visible = false end
+                continue
+            end
+
+            -- 네모 박스
+            if data.box then
+                if state.espBox then
+                    -- 머리 위/발 아래 기준으로 박스 크기 계산
+                    local headPos = Vector2.new(headScreen.X, headScreen.Y)
+                    local rootPos = Vector2.new(hrpScreen.X, hrpScreen.Y)
+                    local height = math.abs(rootPos.Y - headPos.Y) * 2.4
+                    local width = height * 0.55
+                    local topY = headPos.Y - height * 0.25
+
+                    local tl = Vector2.new(headPos.X - width / 2, topY)
+                    local tr = Vector2.new(headPos.X + width / 2, topY)
+                    local bl = Vector2.new(headPos.X - width / 2, topY + height)
+                    local br = Vector2.new(headPos.X + width / 2, topY + height)
+
+                    data.box.tl.From = tl; data.box.tl.To = tr
+                    data.box.tr.From = tr; data.box.tr.To = br
+                    data.box.bl.From = bl; data.box.bl.To = br
+                    data.box.br.From = tl; data.box.br.To = bl
+
+                    for _, l in pairs(data.box) do
+                        l.Color = state.espColor
+                        l.Visible = true
+                    end
+                else
+                    for _, l in pairs(data.box) do l.Visible = false end
+                end
+            end
+
+            -- 머리만 (원)
+            if data.headDot then
+                if state.espHead then
+                    data.headDot.Position = Vector2.new(headScreen.X, headScreen.Y)
+                    data.headDot.Color = state.espColor
+                    data.headDot.Visible = true
+                else
+                    data.headDot.Visible = false
+                end
+            end
+
+            -- 이름
+            if data.nameText then
+                if state.espShowName then
+                    data.nameText.Position = Vector2.new(headScreen.X, headScreen.Y - 30)
+                    data.nameText.Text = t.name
+                    data.nameText.Color = state.espTextColor
+                    data.nameText.Visible = true
+                else
+                    data.nameText.Visible = false
+                end
+            end
+
+            -- 거리
+            if data.distText then
+                if state.espShowDistance then
+                    data.distText.Position = Vector2.new(headScreen.X, headScreen.Y - 15)
+                    data.distText.Text = string.format("[%d]", math.floor(dist))
+                    data.distText.Color = state.espTextColor
+                    data.distText.Visible = true
+                else
+                    data.distText.Visible = false
+                end
+            end
+
+            -- 체력바
+            if data.hpBar then
+                if state.espShowHealth then
+                    local hpPct = t.hum.Health / t.hum.MaxHealth
+                    local barWidth = 50
+                    local barY = headScreen.Y - 40
+                    data.hpBar.From = Vector2.new(headScreen.X - barWidth / 2, barY)
+                    data.hpBar.To = Vector2.new(headScreen.X - barWidth / 2 + barWidth * hpPct, barY)
+                    if hpPct > 0.6 then data.hpBar.Color = Color3.fromRGB(0, 255, 0)
+                    elseif hpPct > 0.3 then data.hpBar.Color = Color3.fromRGB(255, 255, 0)
+                    else data.hpBar.Color = Color3.fromRGB(255, 0, 0) end
+                    data.hpBar.Visible = true
+                else
+                    data.hpBar.Visible = false
+                end
+            end
+        end
+    end
+end)
+
+-- 캐릭터 제거 시 ESP 정리
+Players.PlayerRemoving:Connect(function(plr)
+    if plr.Character then removeESP(plr.Character) end
+end)
+
+local function clearAllESP()
+    for char, _ in pairs(espObjects) do
+        removeESP(char)
+    end
+end
+
+-- 히트박스
 local hbData = {}
 local HB_PARTS = {"Head","HumanoidRootPart","Torso","UpperTorso","LowerTorso"}
 
@@ -972,7 +1223,7 @@ cmd("touchtp", "터치 TP", function(a)
     else setTouchTP(not state.touchTP); notify("터치 TP " .. (state.touchTP and "ON" or "OFF")) end
 end)
 
--- 에임 명령어
+-- 에임
 cmd("aim", "에임봇", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then state.aimOn = true; notify("에임 ON")
@@ -1006,9 +1257,7 @@ cmd("aimpart", "조준 부위", function(a)
     local p = a[1] and a[1]:lower()
     if p == "head" then state.aimPart = "Head"
     elseif p == "body" then state.aimPart = "Body"
-    else
-        state.aimPart = state.aimPart == "Head" and "Body" or "Head"
-    end
+    else state.aimPart = state.aimPart == "Head" and "Body" or "Head" end
     notify("Aim: " .. state.aimPart)
 end)
 cmd("exclude", "제외 인원", function(a)
@@ -1020,6 +1269,39 @@ cmd("aimmouse", "마우스 따라다니기", function(a)
     if mode == "on" then state.aimMouseFollow = true; notify("마우스 추적 ON")
     elseif mode == "off" then state.aimMouseFollow = false; notify("화면 중앙 고정")
     else state.aimMouseFollow = not state.aimMouseFollow; notify("FOV " .. (state.aimMouseFollow and "마우스 추적" or "화면 중앙")) end
+end)
+
+-- ESP
+cmd("esp", "ESP 토글", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.espOn = true; notify("ESP ON")
+    elseif mode == "off" then state.espOn = false; clearAllESP(); notify("ESP OFF")
+    else state.espOn = not state.espOn; if not state.espOn then clearAllESP() end; notify("ESP " .. (state.espOn and "ON" or "OFF")) end
+end)
+cmd("espoutline", "ESP 테두리", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.espOutline = true
+    elseif mode == "off" then state.espOutline = false
+    else state.espOutline = not state.espOutline end
+    notify("ESP 테두리 " .. (state.espOutline and "ON" or "OFF"))
+end)
+cmd("esphead", "ESP 머리", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.espHead = true
+    elseif mode == "off" then state.espHead = false
+    else state.espHead = not state.espHead end
+    notify("ESP 머리 " .. (state.espHead and "ON" or "OFF"))
+end)
+cmd("espbox", "ESP 네모", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.espBox = true
+    elseif mode == "off" then state.espBox = false
+    else state.espBox = not state.espBox end
+    notify("ESP 네모 " .. (state.espBox and "ON" or "OFF"))
+end)
+cmd("espdist", "ESP 거리", function(a)
+    local n = numArg(a, 1); if not n then notify(".espdist 1000"); return end
+    state.espMaxDist = math.clamp(n, 50, 5000); notify("ESP 거리 " .. state.espMaxDist)
 end)
 
 cmd("hb", "히트박스", function(a)
@@ -1104,8 +1386,8 @@ cmd("reset", "리셋", function()
     state.ws = nil; state.jp = nil; state.fov = nil; state.bright = nil; state.hipHeight = nil
     state.god = false
     setFly(false); setNoclip(false); setInvis(false); setSpin(false)
-    setTouchTP(false); setHb(false); stopDance()
-    state.aimOn = false; updateCircle()
+    setTouchTP(false); setHb(false); stopDance(); clearAllESP()
+    state.aimOn = false; state.espOn = false; updateCircle()
     applyFOV(); applyLights(); applyLighting()
     notify("리셋")
 end)
@@ -1183,54 +1465,88 @@ local Window = Rayfield:CreateWindow({
     Size = UDim2.fromOffset(1150, 320),
 })
 
--- 에임 (사진과 동일한 배치)
+-- 에임
 local AimTab = Window:CreateTab("에임", 4483362458)
 AimTab:CreateSection("AimBot")
-
 AimTab:CreateToggle({Name = "Aimbot (Q)", CurrentValue = false, Flag = "aOn",
     Callback = function(v) state.aimOn = v; updateCircle() end})
-
 AimTab:CreateToggle({Name = "Strong Lock", CurrentValue = false, Flag = "aSL",
-    Callback = function(v)
-        state.aimStrongLock = v
-        if not v then lockedTarget = nil end
-    end})
-
+    Callback = function(v) state.aimStrongLock = v; if not v then lockedTarget = nil end end})
 AimTab:CreateToggle({Name = "Wallcheck (OFF = 벽 뚫기)", CurrentValue = false, Flag = "aWC",
     Callback = function(v) state.aimVisible = v end})
-
 AimTab:CreateButton({Name = "Aim: Head (클릭하면 Head ↔ Body)",
     Callback = function()
         state.aimPart = state.aimPart == "Head" and "Body" or "Head"
         notify("Aim: " .. state.aimPart)
     end})
-
 AimTab:CreateSlider({Name = "FOV (200)", Range = {20, 800}, Increment = 5,
-    CurrentValue = 200, Flag = "aFov",
-    Callback = function(v) state.aimFOV = v; updateCircle() end})
-
+    CurrentValue = 200, Flag = "aFov", Callback = function(v) state.aimFOV = v; updateCircle() end})
 AimTab:CreateSlider({Name = "Exclude (제외 인원)", Range = {0, 20}, Increment = 1,
-    CurrentValue = 0, Flag = "aEx",
-    Callback = function(v) state.aimExclude = v end})
-
+    CurrentValue = 0, Flag = "aEx", Callback = function(v) state.aimExclude = v end})
 AimTab:CreateToggle({Name = "마우스 따라다니기 (OFF = 화면 중앙)", CurrentValue = false, Flag = "aMF",
     Callback = function(v)
         state.aimMouseFollow = v
         notify("FOV " .. (v and "마우스 추적" or "화면 중앙 고정"))
     end})
-
 AimTab:CreateToggle({Name = "토글 모드 (OFF = 우클릭 홀드)", CurrentValue = false, Flag = "aHold",
     Callback = function(v) state.aimHold = not v end})
-
 AimTab:CreateSlider({Name = "부드러움", Range = {0.05, 1}, Increment = 0.05,
-    CurrentValue = 0.3, Flag = "aSm",
-    Callback = function(v) state.aimSmooth = v end})
-
+    CurrentValue = 0.3, Flag = "aSm", Callback = function(v) state.aimSmooth = v end})
 AimTab:CreateToggle({Name = "같은 팀 무시", CurrentValue = false, Flag = "aTeam",
     Callback = function(v) state.aimTeam = v end})
-
 AimTab:CreateToggle({Name = "더미/NPC 타겟", CurrentValue = true, Flag = "aNPC",
     Callback = function(v) state.aimNPC = v end})
+
+-- ESP
+local EspTab = Window:CreateTab("ESP", 4483362458)
+EspTab:CreateSection("ESP")
+
+EspTab:CreateToggle({Name = "ESP ON/OFF", CurrentValue = false, Flag = "espOn",
+    Callback = function(v)
+        state.espOn = v
+        if not v then clearAllESP() end
+        notify("ESP " .. (v and "ON" or "OFF"))
+    end})
+
+EspTab:CreateSection("표시 방식")
+
+EspTab:CreateToggle({Name = "테두리 (Outline)", CurrentValue = false, Flag = "espOutline",
+    Callback = function(v) state.espOutline = v end})
+
+EspTab:CreateToggle({Name = "머리만 (Head)", CurrentValue = false, Flag = "espHead",
+    Callback = function(v) state.espHead = v end})
+
+EspTab:CreateToggle({Name = "네모 (Box)", CurrentValue = false, Flag = "espBox",
+    Callback = function(v) state.espBox = v end})
+
+EspTab:CreateSection("정보 표시")
+
+EspTab:CreateToggle({Name = "이름 표시", CurrentValue = true, Flag = "espName",
+    Callback = function(v) state.espShowName = v end})
+
+EspTab:CreateToggle({Name = "거리 표시", CurrentValue = true, Flag = "espDist",
+    Callback = function(v) state.espShowDistance = v end})
+
+EspTab:CreateToggle({Name = "체력바 표시", CurrentValue = false, Flag = "espHP",
+    Callback = function(v) state.espShowHealth = v end})
+
+EspTab:CreateSection("설정")
+
+EspTab:CreateColorPicker({Name = "ESP 색상", Color = Color3.fromRGB(255, 0, 0), Flag = "espCol",
+    Callback = function(c) state.espColor = c end})
+
+EspTab:CreateColorPicker({Name = "텍스트 색상", Color = Color3.fromRGB(255, 255, 255), Flag = "espTxtCol",
+    Callback = function(c) state.espTextColor = c end})
+
+EspTab:CreateSlider({Name = "최대 거리", Range = {50, 5000}, Increment = 50, Suffix = "studs",
+    CurrentValue = 1000, Flag = "espMax",
+    Callback = function(v) state.espMaxDist = v end})
+
+EspTab:CreateToggle({Name = "더미/NPC ESP", CurrentValue = true, Flag = "espNPC",
+    Callback = function(v) state.espNPC = v end})
+
+EspTab:CreateToggle({Name = "같은 팀 ESP 제외", CurrentValue = false, Flag = "espTeam",
+    Callback = function(v) state.espTeam = v end})
 
 -- 히트박스
 local HbTab = Window:CreateTab("히트박스", 4483362458)
