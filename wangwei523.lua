@@ -1533,8 +1533,6 @@ end)
 -- 초기 적용
 -- =========================================================
 attachPlayerLight()
-applyLights()
-applyLighting()
 applyMovement()
 applyFOV()
 
