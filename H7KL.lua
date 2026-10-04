@@ -2143,6 +2143,14 @@ ScriptTab:CreateButton({
     end
 })
 
+ScriptTab:CreateButton({
+    Name = "⚔️ 인피니티 야드 어드민 실행",
+    Callback = function()
+        notify("인피니티 야드 어드민 실행 중...")
+        executeExternalScript("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source")
+    end
+})
+
 -- 명령어 탭
 local CTab = Window:CreateTab("명령어", 4483362458)
 CTab:CreateSection("명령어 실행")
