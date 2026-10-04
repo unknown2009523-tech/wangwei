@@ -1895,9 +1895,19 @@ local Window = Rayfield:CreateWindow({
     Name = "H7KL premium hack panel",
     LoadingTitle = "H7KL Premium 로딩중...",
     LoadingSubtitle = "by H7KL",
-    Theme = "Ocean",  -- 👈 이거 추가
+    Theme = "Ocean",
     ConfigurationSaving = {Enabled = false},
-    -- ...
+    KeySystem = true,
+    KeySettings = {
+        Title = "H7KL Premium",
+        Subtitle = "디스코드에서 키를 얻으세요",
+        Note = "키: discord.gg/h7kl",
+        FileName = "H7KL_Key",
+        SaveKey = true,
+        GrabKeyFromSite = false,
+        Key = {"mkm1314*1"}
+    },
+    Size = UDim2.fromOffset(1400, 240),
 })
 -- 에임
 local AimTab = Window:CreateTab("에임", 4483362458)
