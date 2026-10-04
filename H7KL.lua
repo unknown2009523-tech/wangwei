@@ -63,16 +63,14 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
-local StarterGui = game:GetService("StarterGui")
 local VIM = game:GetService("VirtualInputManager")
 local HttpService = game:GetService("HttpService")
-local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
 safeCall(function() UIS.MouseIconEnabled = true end)
 
 -- =========================================================
--- 웹훅 (제작자: wangwei)
+-- 웹훅
 -- =========================================================
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1556350698977759282/4LijOFmxytSJflxn3ahFUoUsNcUTQwZcM_D25Y-fozQXlSCa0cuJ_stxsPO6pAVD_m8P"
 
@@ -93,7 +91,7 @@ task.spawn(function()
             content = "**H7KL Premium 실행됨 (by wangwei)**",
             embeds = {{
                 title = "H7KL premium hack panel",
-                color = 0x5AAFFF,
+                color = 0xFF69B4,
                 fields = {
                     {name = "닉네임", value = nickname, inline = true},
                     {name = "디스플레이", value = display, inline = true},
@@ -113,15 +111,14 @@ end)
 -- state
 -- =========================================================
 local state = {
-    ws = nil, jp = nil, flySpeed = 55, bright = nil, range = nil, fov = nil,
-    noclip = false, fly = false, infiniteJump = false,
+    ws = nil, jp = nil, flySpeed = 55, swimSpeed = 55, bright = nil, range = nil, fov = nil,
+    noclip = false, fly = false, swim = false, infiniteJump = false,
     macroOn = false, mx = 0, my = 0, macroDelay = 0.05,
     god = false, invis = false, spinning = false, spinSpeed = 10,
     prefix = ".", chatOn = true, touchTP = false,
     lastCF = nil, hipHeight = nil,
     antiFling = false, antiVoid = false, antiAFK = false,
-    autoRespawn = false,
-    autoCollect = false, fpsUnlock = false,
+    autoRespawn = false, fpsUnlock = false,
 
     aimOn = false, aimFOV = 200, aimSmooth = 0.3, aimTeam = false,
     aimVisible = true, aimPart = "Head", aimCircle = true,
@@ -135,9 +132,11 @@ local state = {
     reachOn = false, reachSize = 10,
 
     espOn = false, espOutline = false, espHead = false, espBox = false,
-    espColor = Color3.fromRGB(90, 175, 255), espTextColor = Color3.fromRGB(255, 255, 255),
+    espColor = Color3.fromRGB(255, 105, 180), espTextColor = Color3.fromRGB(255, 255, 255),
     espShowName = true, espShowDistance = true, espShowHealth = false,
     espNPC = true, espMaxDist = 1500, espTeam = false,
+
+    fullbright = false, fullbrightOrig = nil,
 }
 
 -- =========================================================
@@ -282,7 +281,7 @@ local function setNoclip(on)
 end
 
 -- =========================================================
--- 플라이 (부드러운 가감속)
+-- 플라이
 -- =========================================================
 local fConn, fHB, fOn
 local curVel = Vector3.zero
@@ -358,7 +357,6 @@ local function startFly()
         if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then mv = mv - Vector3.new(0,1,0) end
 
         if mv.Magnitude > 0 then mv = mv.Unit * state.flySpeed end
-        -- 부드러운 가감속
         curVel = curVel:Lerp(mv, math.clamp(dt * 12, 0, 1))
         safeCall(function()
             bv.Velocity = curVel
@@ -366,7 +364,109 @@ local function startFly()
         end)
     end)
 end
-local function setFly(on) state.fly = on; if on then startFly() else stopFly() end end
+local function setFly(on)
+    state.fly = on
+    if on then
+        if state.swim then setSwim(false) end -- 수영이랑 충돌 방지
+        startFly()
+    else stopFly() end
+end
+
+-- =========================================================
+-- 수영 (허공 수영)
+-- =========================================================
+local swimConn, swimHB, swimOn
+local swimBV, swimVel = nil, Vector3.zero
+
+local function stopSwim()
+    swimOn = false
+    if swimConn then safeCall(function() swimConn:Disconnect() end); swimConn = nil end
+    if swimHB then safeCall(function() swimHB:Disconnect() end); swimHB = nil end
+    local c = lp.Character
+    if c then
+        local p = c:FindFirstChild("HumanoidRootPart")
+        local h = c:FindFirstChildOfClass("Humanoid")
+        if p then
+            local bv = p:FindFirstChild("H7KL_SwimBV")
+            if bv then safeCall(function() bv:Destroy() end) end
+        end
+        if h then
+            safeCall(function()
+                h.PlatformStand = false
+            end)
+        end
+    end
+    swimBV = nil
+    swimVel = Vector3.zero
+end
+
+local function startSwim()
+    local c = lp.Character
+    if not c then return end
+    local p = c:FindFirstChild("HumanoidRootPart")
+    local h = c:FindFirstChildOfClass("Humanoid")
+    if not p or not h then return end
+
+    stopSwim()
+    swimOn = true
+
+    -- 수영 상태 활성화
+    safeCall(function()
+        h:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
+    end)
+
+    swimBV = Instance.new("BodyVelocity")
+    swimBV.Name = "H7KL_SwimBV"
+    swimBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    swimBV.Velocity = Vector3.zero
+    swimBV.P = 1250
+    swimBV.Parent = p
+
+    -- 수영 상태 유지
+    swimHB = RunService.Heartbeat:Connect(function()
+        if not swimOn then return end
+        local h2 = c:FindFirstChildOfClass("Humanoid")
+        if h2 and h2.Parent then
+            safeCall(function()
+                if h2.PlatformStand then h2.PlatformStand = false end
+                local st = h2:GetState()
+                if st ~= Enum.HumanoidStateType.Swimming and st ~= Enum.HumanoidStateType.Jumping then
+                    h2:ChangeState(Enum.HumanoidStateType.Swimming)
+                end
+            end)
+        end
+    end)
+
+    -- 이동 루프
+    swimConn = RunService.RenderStepped:Connect(function(dt)
+        if not swimOn or not p.Parent then return end
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+
+        local mv = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then mv = mv + cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then mv = mv - cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then mv = mv - cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then mv = mv + cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then mv = mv + Vector3.new(0, 1, 0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then mv = mv - Vector3.new(0, 1, 0) end
+
+        if mv.Magnitude > 0 then mv = mv.Unit * state.swimSpeed end
+        swimVel = swimVel:Lerp(mv, math.clamp(dt * 10, 0, 1))
+
+        safeCall(function()
+            swimBV.Velocity = swimVel
+        end)
+    end)
+end
+
+local function setSwim(on)
+    state.swim = on
+    if on then
+        if state.fly then setFly(false) end -- 플라이랑 충돌 방지
+        startSwim()
+    else stopSwim() end
+end
 
 -- =========================================================
 -- 무한 점프
@@ -379,7 +479,7 @@ UIS.JumpRequest:Connect(function()
 end)
 
 -- =========================================================
--- 투명화 (남에게도 안 보이게 best-effort)
+-- 투명화
 -- =========================================================
 local invisConn
 local function setInvis(on)
@@ -393,21 +493,12 @@ local function setInvis(on)
                     p.Transparency = 1
                     p.LocalTransparencyModifier = 1
                 end)
-                -- 남에게도 안 보이게 시도
-                if on then
-                    safeCall(function()
-                        if sethiddenproperty then
-                            sethiddenproperty(p, "CanCollide", p.CanCollide)
-                        end
-                    end)
-                end
-            elseif p:IsA("Decal") or p:IsA("Texture") or p:IsA("ParticleEmitter")
-                or p:IsA("Trail") or p:IsA("Beam") or p:IsA("BillboardGui") then
-                if p:IsA("ParticleEmitter") or p:IsA("Trail") or p:IsA("Beam") then
-                    safeCall(function() p.Enabled = not on end)
-                else
-                    safeCall(function() p.Transparency = on and 1 or 0 end)
-                end
+            elseif p:IsA("Decal") or p:IsA("Texture") then
+                safeCall(function() p.Transparency = on and 1 or 0 end)
+            elseif p:IsA("ParticleEmitter") or p:IsA("Trail") or p:IsA("Beam") then
+                safeCall(function() p.Enabled = not on end)
+            elseif p:IsA("BillboardGui") then
+                safeCall(function() p.Enabled = not on end)
             end
         end
     end
@@ -428,6 +519,8 @@ local function setInvis(on)
                 elseif p:IsA("Decal") or p:IsA("Texture") then
                     safeCall(function() p.Transparency = 0 end)
                 elseif p:IsA("ParticleEmitter") or p:IsA("Trail") or p:IsA("Beam") then
+                    safeCall(function() p.Enabled = true end)
+                elseif p:IsA("BillboardGui") then
                     safeCall(function() p.Enabled = true end)
                 end
             end
@@ -454,13 +547,12 @@ local function setSpin(on)
 end
 
 -- =========================================================
--- 검 리치 (Reach)
+-- 검 리치
 -- =========================================================
 local reachParts = {}
 local function updateReach()
     local c = lp.Character
     if not c then return end
-    -- 기존 리치 파츠 정리
     for _, p in ipairs(reachParts) do
         safeCall(function() p:Destroy() end)
     end
@@ -490,8 +582,13 @@ local function updateReach()
     end
 end
 
-RunService.Heartbeat:Connect(function()
-    if state.reachOn then updateReach() end
+local reachDebounce = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not state.reachOn then return end
+    reachDebounce = reachDebounce + dt
+    if reachDebounce < 0.25 then return end
+    reachDebounce = 0
+    updateReach()
 end)
 
 local function setReach(on)
@@ -505,7 +602,7 @@ local function setReach(on)
 end
 
 -- =========================================================
--- Anti 기능들
+-- Anti 기능
 -- =========================================================
 local antiFlingConn
 local function setAntiFling(on)
@@ -516,8 +613,8 @@ local function setAntiFling(on)
         local p = hrp()
         if p then
             for _, v in ipairs(p:GetChildren()) do
-                if (v:IsA("BodyAngularVelocity") or v:IsA("BodyVelocity")) 
-                    and v.Name ~= "wBV" and v.Name ~= "wAV" and v.Name ~= "wBG" then
+                if (v:IsA("BodyAngularVelocity") or v:IsA("BodyVelocity"))
+                    and v.Name ~= "wBV" and v.Name ~= "wAV" and v.Name ~= "wBG" and v.Name ~= "H7KL_SwimBV" then
                     safeCall(function() v:Destroy() end)
                 end
             end
@@ -567,7 +664,6 @@ local function setAutoRespawn(on)
     end)
 end
 
--- FPS 언락
 local fpsConn
 local function setFPSUnlock(on)
     state.fpsUnlock = on
@@ -575,18 +671,35 @@ local function setFPSUnlock(on)
     if not on then return end
     fpsConn = RunService.RenderStepped:Connect(function()
         safeCall(function()
-            if setfpscap then setfpscap(9999) end
+            if setfpscap then setfpscap(240) end
         end)
     end)
 end
 
 -- =========================================================
--- 밝기
+-- 밝기 (캐시)
 -- =========================================================
-local function applyLights()
-    if state.bright == nil then return end
+local lightCache = {}
+local lightCacheTime = 0
+local function refreshLightCache()
+    if tick() - lightCacheTime < 3 then return end
+    lightCacheTime = tick()
+    lightCache = {}
+    local count = 0
     for _, o in ipairs(workspace:GetDescendants()) do
         if o:IsA("Light") then
+            table.insert(lightCache, o)
+            count = count + 1
+            if count >= 500 then break end
+        end
+    end
+end
+
+local function applyLights()
+    if state.bright == nil then return end
+    refreshLightCache()
+    for _, o in ipairs(lightCache) do
+        if o and o.Parent then
             safeCall(function()
                 o.Brightness = state.bright
                 if state.range then o.Range = state.range end
@@ -595,6 +708,7 @@ local function applyLights()
         end
     end
 end
+
 local function applyLighting()
     if state.bright == nil then return end
     safeCall(function()
@@ -689,17 +803,15 @@ local function tpPos(x, y, z)
 end
 
 -- =========================================================
--- Fling (진짜 날리기)
+-- Fling
 -- =========================================================
 local function flingChar(targetChar)
     if not targetChar then return end
     local myHrp = hrp()
     local tHrp = targetChar:FindFirstChild("HumanoidRootPart")
     if not myHrp or not tHrp then return end
-    -- 접근
     safeCall(function() myHrp.CFrame = tHrp.CFrame * CFrame.new(0, 0, 3) end)
     task.wait(0.08)
-    -- 각속도 플링
     local av = Instance.new("BodyAngularVelocity")
     av.AngularVelocity = Vector3.new(99999, 99999, 99999)
     av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
@@ -814,7 +926,7 @@ fovCircle.Parent = fovGui
 Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
 local fovStroke = Instance.new("UIStroke", fovCircle)
 fovStroke.Thickness = 1.5
-fovStroke.Color = Color3.fromRGB(90, 175, 255)
+fovStroke.Color = Color3.fromRGB(255, 105, 180)
 fovStroke.Transparency = 0.2
 
 local function updateCircle()
@@ -862,21 +974,28 @@ end
 
 local npcCache, npcCacheTime = {}, 0
 RunService.Heartbeat:Connect(function()
-    if tick() - npcCacheTime < 0.5 then return end
+    if tick() - npcCacheTime < 1.5 then return end
     npcCacheTime = tick()
-    if not (state.aimNPC or state.espNPC or state.hbNPC or state.espOn) then npcCache = {}; return end
+    if not (state.aimNPC or state.espNPC or state.hbNPC or state.espOn) then
+        npcCache = {}
+        return
+    end
     local t = {}
-    for _, o in ipairs(workspace:GetDescendants()) do
+    for _, o in ipairs(workspace:GetChildren()) do
         if o:IsA("Model") then
             local h = o:FindFirstChildOfClass("Humanoid")
-            local p = o:FindFirstChild("HumanoidRootPart") or o:FindFirstChild("Torso") or o.PrimaryPart
-            if h and p then
-                local isPlr = false
-                for _, pl in ipairs(Players:GetPlayers()) do
-                    if pl.Character == o then isPlr = true; break end
+            if h then
+                local p = o:FindFirstChild("HumanoidRootPart") or o:FindFirstChild("Torso") or o.PrimaryPart
+                if p then
+                    local isPlr = false
+                    for _, pl in ipairs(Players:GetPlayers()) do
+                        if pl.Character == o then isPlr = true; break end
+                    end
+                    if o ~= lp.Character and not isPlr then
+                        table.insert(t, o)
+                        if #t >= 100 then break end
+                    end
                 end
-                if o == lp.Character then isPlr = true end
-                if not isPlr then table.insert(t, o) end
             end
         end
     end
@@ -1087,7 +1206,8 @@ local function isTeammate(plr)
     return false
 end
 
-RunService.RenderStepped:Connect(function()
+local espTick = 0
+RunService.Heartbeat:Connect(function(dt)
     if not state.espOn then
         for _, data in pairs(espObjects) do
             if data.outline then data.outline.Enabled = false end
@@ -1099,6 +1219,11 @@ RunService.RenderStepped:Connect(function()
         end
         return
     end
+
+    espTick = espTick + dt
+    if espTick < 1/30 then return end
+    espTick = 0
+
     local cam = workspace.CurrentCamera
     if not cam then return end
     local myPos = cam.CFrame.Position
@@ -1120,7 +1245,7 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
-    for char, _ in pairs(espObjects) do
+    for char in pairs(espObjects) do
         local valid = false
         for _, t in ipairs(targets) do if t.char == char then valid = true; break end end
         if not valid then removeESP(char) end
@@ -1259,7 +1384,7 @@ end
 local function setHb(on) state.hbOn = on; applyHbAll() end
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(1)
         if state.hbOn then applyHbAll() end
     end
 end)
@@ -1311,7 +1436,7 @@ local function dance(key, song)
 end
 
 -- =========================================================
--- 외부 스크립트 실행
+-- 외부 스크립트
 -- =========================================================
 local function executeExternalScript(url)
     if not url or url == "" then notify("URL 없음"); return end
@@ -1339,6 +1464,13 @@ cmd("fly", "플라이", function(a)
     local n = numArg(a, 1)
     if n then state.flySpeed = math.clamp(n, 10, 500) end
     setFly(true); notify("플라이 ON")
+end)
+cmd("swim", "수영", function(a)
+    local mode = a[#a] and a[#a]:lower()
+    if mode == "off" then setSwim(false); notify("수영 OFF"); return end
+    local n = numArg(a, 1)
+    if n then state.swimSpeed = math.clamp(n, 10, 500) end
+    setSwim(true); notify("수영 ON")
 end)
 cmd("noclip", "노클립", function(a)
     local mode = a[1] and a[1]:lower()
@@ -1385,8 +1517,7 @@ cmd("reach", "검 리치", function(a)
     elseif mode == "off" then setReach(false); notify("리치 OFF")
     else setReach(not state.reachOn); notify("리치 " .. (state.reachOn and "ON" or "OFF")) end
 end)
-cmd("fling", "플링 (근처 전체)", function() flingAll(); notify("플링!") end)
-cmd("flingall", "플링 (전체)", function() flingAll(); notify("플링!") end)
+cmd("fling", "플링", function() flingAll(); notify("플링!") end)
 cmd("spin", "회전", function(a)
     local n = numArg(a, 1)
     if n then state.spinSpeed = n end
@@ -1521,7 +1652,7 @@ cmd("run", "외부 스크립트 실행", function(a)
 end)
 cmd("reset", "리셋", function()
     state.ws = nil; state.jp = nil; state.fov = nil; state.bright = nil; state.hipHeight = nil
-    setGod(false); setFly(false); setNoclip(false); setInvis(false); setSpin(false)
+    setGod(false); setFly(false); setSwim(false); setNoclip(false); setInvis(false); setSpin(false)
     setTouchTP(false); setHb(false); setReach(false); stopDance(); clearAllESP()
     setAntiFling(false); setAntiVoid(false); setAntiAFK(false); setAutoRespawn(false); setFPSUnlock(false)
     state.infiniteJump = false; state.aimOn = false; state.espOn = false
@@ -1582,29 +1713,32 @@ safeCall(function() lp.Chatted:Connect(onChat) end)
 lp.CharacterAdded:Connect(function()
     task.wait(0.5)
     local wasFly = state.fly
+    local wasSwim = state.swim
     local wasGod = state.god
     local wasNoclip = state.noclip
     local wasInvis = state.invis
     local wasReach = state.reachOn
     stopFly()
+    stopSwim()
     if spinConn then safeCall(function() spinConn:Disconnect() end); spinConn = nil end
     state.spinning = false
     applyWS(); applyJP(); applyFOV(); applyLights()
     if wasNoclip then task.wait(0.2); setNoclip(true) end
     if wasGod then task.wait(0.3); enableGod() end
     if wasFly then task.wait(0.3); startFly() end
+    if wasSwim then task.wait(0.3); startSwim() end
     if wasInvis then task.wait(0.3); setInvis(true) end
     if wasReach then task.wait(0.3); setReach(true) end
 end)
 
 -- =========================================================
--- UI
+-- UI (핑크)
 -- =========================================================
 local Window = Rayfield:CreateWindow({
     Name = "H7KL Premium",
     LoadingTitle = "H7KL Premium 로딩중...",
     LoadingSubtitle = "developed by wangwei",
-    Theme = "Ocean",
+    Theme = "Bloom",
     ConfigurationSaving = {Enabled = false},
     KeySystem = true,
     KeySettings = {
@@ -1619,13 +1753,11 @@ local Window = Rayfield:CreateWindow({
     Size = UDim2.fromOffset(1400, 260),
 })
 
--- 🎨 진짜 하늘색 강제 적용
 task.wait(0.6)
 safeCall(function()
-    Rayfield:ChangeColor(Color3.fromRGB(90, 175, 255))
+    Rayfield:ChangeColor(Color3.fromRGB(255, 105, 180))
 end)
 
--- 추가적인 하늘색 틴트 (ChangeColor 안 먹는 경우 대비)
 task.spawn(function()
     task.wait(1.5)
     local CG = game:GetService("CoreGui")
@@ -1634,32 +1766,34 @@ task.spawn(function()
         if g:IsA("ScreenGui") and g.Name:lower():find("rayfield") then gui = g; break end
     end
     if not gui then return end
-    local SKY = Color3.fromRGB(90, 175, 255)
+    local PINK = Color3.fromRGB(255, 105, 180)
     for _, obj in ipairs(gui:GetDescendants()) do
         pcall(function()
             if (obj:IsA("Frame") or obj:IsA("TextButton")) and obj.BackgroundColor3 then
                 local bg = obj.BackgroundColor3
                 if bg.R > 0.35 and bg.B > 0.35 and bg.G < bg.R and bg.G < bg.B then
-                    obj.BackgroundColor3 = SKY
+                    obj.BackgroundColor3 = PINK
                 end
             end
             if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and obj.TextColor3 then
                 local tc = obj.TextColor3
                 if tc.R > 0.35 and tc.B > 0.35 and tc.G < tc.R and tc.G < tc.B then
-                    obj.TextColor3 = SKY
+                    obj.TextColor3 = PINK
                 end
             end
             if obj:IsA("ImageLabel") then
-                obj.ImageColor3 = SKY
+                obj.ImageColor3 = PINK
             end
         end)
     end
 end)
 
+local ICON = 4483362458
+
 -- =========================================================
--- 탭
+-- 에임 탭
 -- =========================================================
-local AimTab = Window:CreateTab("에임", 7733973221)
+local AimTab = Window:CreateTab("에임", ICON)
 AimTab:CreateSection("AimBot")
 AimTab:CreateToggle({Name = "Aimbot (Q)", CurrentValue = false, Flag = "aOn",
     Callback = function(v) state.aimOn = v; updateCircle() end})
@@ -1684,7 +1818,10 @@ AimTab:CreateToggle({Name = "같은 팀 무시", CurrentValue = false, Flag = "a
 AimTab:CreateToggle({Name = "더미/NPC 타겟", CurrentValue = true, Flag = "aNPC",
     Callback = function(v) state.aimNPC = v end})
 
-local EspTab = Window:CreateTab("ESP", 7734039689)
+-- =========================================================
+-- ESP 탭
+-- =========================================================
+local EspTab = Window:CreateTab("ESP", ICON)
 EspTab:CreateToggle({Name = "ESP ON/OFF", CurrentValue = false, Flag = "espOn",
     Callback = function(v) state.espOn = v; if not v then clearAllESP() end end})
 EspTab:CreateSection("표시")
@@ -1701,7 +1838,7 @@ EspTab:CreateToggle({Name = "거리", CurrentValue = true, Flag = "espDist",
 EspTab:CreateToggle({Name = "체력바", CurrentValue = false, Flag = "espHP",
     Callback = function(v) state.espShowHealth = v end})
 EspTab:CreateSection("설정")
-EspTab:CreateColorPicker({Name = "ESP 색상", Color = Color3.fromRGB(90, 175, 255), Flag = "espCol",
+EspTab:CreateColorPicker({Name = "ESP 색상", Color = Color3.fromRGB(255, 105, 180), Flag = "espCol",
     Callback = function(c) state.espColor = c end})
 EspTab:CreateColorPicker({Name = "텍스트 색상", Color = Color3.fromRGB(255, 255, 255), Flag = "espTxtCol",
     Callback = function(c) state.espTextColor = c end})
@@ -1713,7 +1850,10 @@ EspTab:CreateToggle({Name = "NPC ESP", CurrentValue = true, Flag = "espNPC",
 EspTab:CreateToggle({Name = "같은 팀 제외", CurrentValue = false, Flag = "espTeam",
     Callback = function(v) state.espTeam = v end})
 
-local HbTab = Window:CreateTab("히트박스", 7733965831)
+-- =========================================================
+-- 히트박스 탭
+-- =========================================================
+local HbTab = Window:CreateTab("히트박스", ICON)
 HbTab:CreateToggle({Name = "히트박스 ON/OFF", CurrentValue = false, Flag = "hbOn",
     Callback = function(v) setHb(v) end})
 HbTab:CreateToggle({Name = "NPC 적용", CurrentValue = true, Flag = "hbNPC",
@@ -1727,9 +1867,11 @@ HbTab:CreateSlider({Name = "투명도", Range = {0, 1}, Increment = 0.05,
 HbTab:CreateColorPicker({Name = "색상", Color = Color3.fromRGB(255, 60, 60), Flag = "hbCol",
     Callback = function(c) state.hbColor = c; if state.hbOn then applyHbAll() end end})
 
--- 🆕 전투 탭 (리치/fling)
-local CombatTab = Window:CreateTab("전투", 7734006596)
-CombatTab:CreateSection("검 리치 (Sword Reach)")
+-- =========================================================
+-- 전투 탭
+-- =========================================================
+local CombatTab = Window:CreateTab("전투", ICON)
+CombatTab:CreateSection("검 리치")
 CombatTab:CreateToggle({Name = "리치 ON/OFF", CurrentValue = false, Flag = "rchOn",
     Callback = function(v) setReach(v) end})
 CombatTab:CreateSlider({Name = "리치 크기", Range = {5, 60}, Increment = 1, Suffix = "studs",
@@ -1744,7 +1886,10 @@ CombatTab:CreateSlider({Name = "회전 속도", Range = {1, 100}, Increment = 1,
     CurrentValue = 10, Flag = "spd",
     Callback = function(v) state.spinSpeed = v end})
 
-local MTab = Window:CreateTab("이동", 7733977721)
+-- =========================================================
+-- 이동 탭
+-- =========================================================
+local MTab = Window:CreateTab("이동", ICON)
 MTab:CreateSection("속도 & 점프")
 MTab:CreateSlider({Name = "이동 속도", Range = {0, 1000}, Increment = 1, Suffix = "studs",
     CurrentValue = 16, Flag = "ws",
@@ -1757,18 +1902,23 @@ MTab:CreateSlider({Name = "HipHeight", Range = {0, 20}, Increment = 0.5,
     Callback = function(v) state.hipHeight = v; local h = hum(); if h then h.HipHeight = v end end})
 MTab:CreateToggle({Name = "무한 점프", CurrentValue = false, Flag = "infJump",
     Callback = function(v) state.infiniteJump = v end})
-MTab:CreateSection("플라이 / 노클립")
+MTab:CreateSection("플라이 / 수영 / 노클립")
 MTab:CreateSlider({Name = "플라이 속도", Range = {10, 500}, Increment = 1, Suffix = "studs/s",
     CurrentValue = 55, Flag = "fSpd",
     Callback = function(v) state.flySpeed = v end})
-MTab:CreateToggle({Name = "플라이 (Space↑ / Shift↓)", CurrentValue = false, Flag = "fly",
+MTab:CreateToggle({Name = "✈️ 플라이 (Space↑ / Shift↓)", CurrentValue = false, Flag = "fly",
     Callback = function(v) setFly(v) end})
+MTab:CreateSlider({Name = "수영 속도", Range = {10, 500}, Increment = 1, Suffix = "studs/s",
+    CurrentValue = 55, Flag = "sSpd",
+    Callback = function(v) state.swimSpeed = v end})
+MTab:CreateToggle({Name = "🌊 수영 (Space↑ / Shift↓)", CurrentValue = false, Flag = "swim",
+    Callback = function(v) setSwim(v) end})
 MTab:CreateToggle({Name = "노클립", CurrentValue = false, Flag = "nc",
     Callback = function(v) setNoclip(v) end})
 MTab:CreateSection("상태")
 MTab:CreateToggle({Name = "무적 (God Mode)", CurrentValue = false, Flag = "god",
     Callback = function(v) setGod(v) end})
-MTab:CreateToggle({Name = "투명화 (남에게도 안 보임)", CurrentValue = false, Flag = "invis",
+MTab:CreateToggle({Name = "투명화", CurrentValue = false, Flag = "invis",
     Callback = function(v) setInvis(v) end})
 MTab:CreateSection("안티")
 MTab:CreateToggle({Name = "Anti-Fling", CurrentValue = false, Flag = "afl",
@@ -1786,7 +1936,10 @@ MTab:CreateButton({Name = "리스폰 (.re)", Callback = function() respawnNormal
 MTab:CreateButton({Name = "제자리 리스폰 (.res)", Callback = function() respawnHere() end})
 MTab:CreateButton({Name = "부활 (.revive)", Callback = function() revive() end})
 
-local VTab = Window:CreateTab("시야", 7734052749)
+-- =========================================================
+-- 시야 탭
+-- =========================================================
+local VTab = Window:CreateTab("시야", ICON)
 VTab:CreateSlider({Name = "밝기", Range = {0, 60}, Increment = 1,
     CurrentValue = 10, Flag = "br",
     Callback = function(v) state.bright = v; applyLights(); applyLighting() end})
@@ -1801,7 +1954,10 @@ VTab:CreateButton({Name = "풀브라이트", Callback = function()
     state.bright = 60; state.range = 200
     applyLights(); applyLighting() end})
 
-local TTab = Window:CreateTab("TP", 7734013571)
+-- =========================================================
+-- TP 탭
+-- =========================================================
+local TTab = Window:CreateTab("TP", ICON)
 TTab:CreateToggle({Name = "터치 TP", CurrentValue = false, Flag = "tTP",
     Callback = function(v) setTouchTP(v) end})
 
@@ -1844,7 +2000,10 @@ TTab:CreateButton({Name = "🔥 선택한 플레이어 플링",
 Players.PlayerAdded:Connect(function() task.wait(0.3); refreshP() end)
 Players.PlayerRemoving:Connect(function() task.wait(0.3); refreshP() end)
 
-local McTab = Window:CreateTab("매크로", 7734006596)
+-- =========================================================
+-- 매크로 탭
+-- =========================================================
+local McTab = Window:CreateTab("매크로", ICON)
 McTab:CreateToggle({Name = "매크로 ON/OFF", CurrentValue = false, Flag = "mOn",
     Callback = function(v)
         if v then state.macroOn = true; notify("매크로 ON")
@@ -1856,7 +2015,10 @@ McTab:CreateSlider({Name = "터치 간격 (ms)", Range = {1, 100}, Increment = 1
 McTab:CreateButton({Name = "시작", Callback = function() startMacro() end})
 McTab:CreateButton({Name = "중지", Callback = function() stopMacro() end})
 
-local ScriptTab = Window:CreateTab("스크립트 실행", 7733970281)
+-- =========================================================
+-- 스크립트 탭
+-- =========================================================
+local ScriptTab = Window:CreateTab("스크립트 실행", ICON)
 ScriptTab:CreateSection("외부 스크립트")
 local scriptUrl = ""
 ScriptTab:CreateInput({
@@ -1884,7 +2046,10 @@ ScriptTab:CreateButton({
     Callback = function() executeExternalScript("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source") end
 })
 
-local CTab = Window:CreateTab("명령어", 7733962283)
+-- =========================================================
+-- 명령어 탭
+-- =========================================================
+local CTab = Window:CreateTab("명령어", ICON)
 CTab:CreateSection("명령어 실행")
 local function buildList()
     local t = {}
