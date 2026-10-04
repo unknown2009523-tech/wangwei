@@ -1035,7 +1035,7 @@ local Window = Rayfield:CreateWindow({
         FileName = "Config"
     },
     KeySystem = false,
-    Size = UDim2.fromOffset(950, 340),
+    Size = UDim2.fromOffset(1050, 340),
 })
 
 -- =========================================================
