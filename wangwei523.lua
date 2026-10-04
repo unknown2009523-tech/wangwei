@@ -1,4 +1,4 @@
--- 왕웨이 허브
+-- 왕웨이 따라가는 핵패널
 -- made by 왕웨이
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -34,7 +34,7 @@ local function hum() local c = lp.Character; return c and c:FindFirstChildOfClas
 local function hrp() local c = lp.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 
 local function notify(t, title)
-    pcall(function() Rayfield:Notify({Title = title or "왕웨이", Content = t, Duration = 2}) end)
+    pcall(function() Rayfield:Notify({Title = title or "왕웨이 따라가는 핵패널", Content = t, Duration = 2}) end)
 end
 
 local function numArg(args, i)
@@ -694,7 +694,7 @@ task.spawn(function()
     end
 end)
 
--- 댄스/음악 (명령어용)
+-- 댄스/음악
 local curMusic, curTrack
 
 local DANCES = {
@@ -923,7 +923,7 @@ end)
 
 -- UI
 local Window = Rayfield:CreateWindow({
-    Name = "왕웨이",
+    Name = "왕웨이 따라가는 핵패널",
     LoadingTitle = "로드중",
     LoadingSubtitle = "by 왕웨이",
     ConfigurationSaving = {Enabled = false},
@@ -1242,7 +1242,7 @@ local function buildList()
     return t
 end
 
-local cmdListPara = CTab:CreateParagraph({
+CTab:CreateParagraph({
     Title = "명령어 (" .. #buildList() .. "개)",
     Content = table.concat(buildList(), "  ")
 })
@@ -1285,4 +1285,4 @@ UIS.InputBegan:Connect(function(input, gpe)
     end
 end)
 
-Rayfield:Notify({Title = "왕웨이", Content = "로드 완료 / " .. state.prefix .. "help", Duration = 3})
+Rayfield:Notify({Title = "왕웨이 따라가는 핵패널", Content = "로드 완료 / " .. state.prefix .. "help", Duration = 3})
