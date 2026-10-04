@@ -1909,6 +1909,9 @@ local Window = Rayfield:CreateWindow({
     Size = UDim2.fromOffset(1150, 320),
 })
 
+safeCall(function()
+    Rayfield:ChangeColor(Color3.fromRGB(0, 200, 255)) -- 하늘색
+end)
 -- 에임
 local AimTab = Window:CreateTab("에임", 4483362458)
 AimTab:CreateSection("AimBot")
