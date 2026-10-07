@@ -126,6 +126,8 @@ local state = {
     aimNPC = true, aimActive = false, aimHold = true,
     aimTarget = nil,
 
+    followOn = false, followActive = false,
+
     hbOn = false, hbSize = 10, hbColor = Color3.fromRGB(255, 60, 60),
     hbTrans = 0.5, hbNPC = true,
 
@@ -467,6 +469,93 @@ local function setSwim(on)
         startSwim()
     else stopSwim() end
 end
+
+-- =========================================================
+-- F키 추적 (가장 가까운 상대 뒤에 붙기)
+-- =========================================================
+local followOrigCF = nil
+local followTarget = nil
+local followConn = nil
+
+local function getClosestChar()
+    local myHrp = hrp()
+    if not myHrp then return nil end
+    local myPos = myHrp.Position
+    local best, bestDist = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= lp and p.Character then
+            local h = p.Character:FindFirstChildOfClass("Humanoid")
+            local thrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if h and h.Health > 0 and thrp then
+                local d = (thrp.Position - myPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = p.Character
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function startFollow()
+    if not state.followOn then return end
+    local me = hrp()
+    if not me then return end
+    followOrigCF = me.CFrame
+    state.followActive = true
+    followTarget = nil
+
+    if followConn then safeCall(function() followConn:Disconnect() end); followConn = nil end
+    followConn = RunService.Heartbeat:Connect(function()
+        if not state.followActive then return end
+        local myHrp = hrp()
+        if not myHrp then return end
+
+        -- 타겟 유효성 검사
+        if not followTarget or not followTarget.Parent then
+            followTarget = getClosestChar()
+        else
+            local th = followTarget:FindFirstChildOfClass("Humanoid")
+            if not th or th.Health <= 0 then
+                followTarget = getClosestChar()
+            end
+        end
+        if not followTarget then return end
+
+        local thrp = followTarget:FindFirstChild("HumanoidRootPart")
+        if not thrp then return end
+
+        safeCall(function()
+            myHrp.CFrame = thrp.CFrame * CFrame.new(0, 0, 2.5)  -- 상대 뒤 2.5칸
+            myHrp.Velocity = Vector3.zero
+        end)
+    end)
+end
+
+local function stopFollow()
+    state.followActive = false
+    if followConn then safeCall(function() followConn:Disconnect() end); followConn = nil end
+    followTarget = nil
+    if followOrigCF then
+        local me = hrp()
+        if me then safeCall(function() me.CFrame = followOrigCF; me.Velocity = Vector3.zero end) end
+        followOrigCF = nil
+    end
+end
+
+-- F 키 입력 (꾹 누르면 추적, 떼면 원위치)
+UIS.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.F and state.followOn and not state.followActive then
+        startFollow()
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F and state.followActive then
+        stopFollow()
+    end
+end)
 
 -- =========================================================
 -- 무한 점프
@@ -1931,6 +2020,12 @@ MTab:CreateToggle({Name = "Auto-Respawn", CurrentValue = false, Flag = "arsp",
     Callback = function(v) setAutoRespawn(v) end})
 MTab:CreateToggle({Name = "FPS 언락", CurrentValue = false, Flag = "fps",
     Callback = function(v) setFPSUnlock(v) end})
+MTab:CreateSection("추적")
+MTab:CreateToggle({Name = "🎯 F 홀드 추적 (뒤에 붙기)", CurrentValue = false, Flag = "followTog",
+    Callback = function(v)
+        state.followOn = v
+        if not v and state.followActive then stopFollow() end
+    end})
 MTab:CreateSection("리스폰")
 MTab:CreateButton({Name = "리스폰 (.re)", Callback = function() respawnNormal() end})
 MTab:CreateButton({Name = "제자리 리스폰 (.res)", Callback = function() respawnHere() end})
